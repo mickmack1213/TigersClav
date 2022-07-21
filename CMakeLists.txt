@@ -12,9 +12,12 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_C_FLAGS_DEBUG "-O0 -g")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 set(BLEND2D_STATIC TRUE)
 include("blend2d/CMakeLists.txt")
 
+find_package(FFmpeg REQUIRED COMPONENTS AVCODEC AVFORMAT AVUTIL SWSCALE)
 find_package(Protobuf REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -43,7 +46,7 @@ add_executable(${PROJECT_NAME}
 )
 
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} glfw3 opengl32 Blend2D::Blend2D ${ZLIB_LIBRARIES} ${Protobuf_LIBRARIES} -static)
+    target_link_libraries(${PROJECT_NAME} glfw3 opengl32 Blend2D::Blend2D ${ZLIB_LIBRARIES} ${Protobuf_LIBRARIES} ${FFMPEG_LIBRARIES} -static)
     target_link_options(${PROJECT_NAME} PRIVATE -mwindows)
 else()
     add_definitions(-DIMGUI_IMPL_OPENGL_ES2)
