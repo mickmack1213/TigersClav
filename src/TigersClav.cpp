@@ -1,18 +1,82 @@
 #include "TigersClav.hpp"
 #include <cstdio>
+#include <cstdint>
+#include <stdexcept>
+
+static int utf8_encode(char* out, uint32_t utf)
+{
+    if(utf <= 0x7F)
+    {
+        // Plain ASCII
+        out[0] = (char)utf;
+        out[1] = 0;
+        return 1;
+    }
+    else if(utf <= 0x07FF)
+    {
+        // 2-byte unicode
+        out[0] = (char)(((utf >> 6) & 0x1F) | 0xC0);
+        out[1] = (char)(((utf >> 0) & 0x3F) | 0x80);
+        out[2] = 0;
+        return 2;
+    }
+    else if(utf <= 0xFFFF)
+    {
+        // 3-byte unicode
+        out[0] = (char)(((utf >> 12) & 0x0F) | 0xE0);
+        out[1] = (char)(((utf >> 6) & 0x3F) | 0x80);
+        out[2] = (char)(((utf >> 0) & 0x3F) | 0x80);
+        out[3] = 0;
+        return 3;
+    }
+    else if(utf <= 0x10FFFF)
+    {
+        // 4-byte unicode
+        out[0] = (char)(((utf >> 18) & 0x07) | 0xF0);
+        out[1] = (char)(((utf >> 12) & 0x3F) | 0x80);
+        out[2] = (char)(((utf >> 6) & 0x3F) | 0x80);
+        out[3] = (char)(((utf >> 0) & 0x3F) | 0x80);
+        out[4] = 0;
+        return 4;
+    }
+    else
+    {
+        // error - use replacement character
+        out[0] = (char)0xEF;
+        out[1] = (char)0xBF;
+        out[2] = (char)0xBD;
+        out[3] = 0;
+        return 0;
+    }
+}
 
 TigersClav::TigersClav()
 {
+    BLResult blResult = regularFontFace_.createFromFile("fonts/NotoSans-Regular.ttf");
+    if(blResult)
+        throw std::runtime_error("Regular font not found");
+
+    blResult = symbolFontFace_.createFromFile("fonts/NotoSansSymbols2-Regular.ttf");
+    if(blResult)
+        throw std::runtime_error("Symbol font not found");
+
+    glGenTextures(1, &gamestateTexture_);
+
+    gamestateImage_.create(800, 300, BL_FORMAT_PRGB32);
 }
 
 void TigersClav::render()
 {
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Once);
-    ImGui::SetNextWindowSize(ImVec2(500, 1200), ImGuiCond_Once);
+    createGamestateOverlay();
 
-    ImGui::Begin("Setup", 0, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Once);
+    ImGui::SetNextWindowSize(ImVec2(1000, 1200), ImGuiCond_Once);
+
+    ImGui::Begin("Setup"/*, 0, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize*/);
 
     ImGui::Checkbox("Demo Window", &showDemoWindow_);
+
+    ImGui::Image((void*)(intptr_t)gamestateTexture_, ImVec2(gamestateImage_.width(), gamestateImage_.height()));
 
     ImGui::Dummy(ImVec2(0, 10));
     ImGui::Separator();
@@ -25,51 +89,89 @@ void TigersClav::render()
 
 void TigersClav::createGamestateOverlay()
 {
-    BLImage img(480, 480, BL_FORMAT_PRGB32);
-
     // Attach a rendering context into `img`.
-    BLContext ctx(img);
+    BLContext ctx(gamestateImage_);
 
     // Clear the image.
     ctx.setCompOp(BL_COMP_OP_SRC_COPY);
+
+    ctx.setFillStyle(BLRgba32(0xFF000000));
     ctx.fillAll();
 
-    // Fill some path.
-    BLPath path;
-    path.moveTo(26, 31);
-    path.cubicTo(642, 132, 587, -136, 25, 464);
-    path.cubicTo(882, 404, 144, 267, 27, 31);
-
-    ctx.setCompOp(BL_COMP_OP_SRC_OVER);
     ctx.setFillStyle(BLRgba32(0xFFFFFFFF));
-    ctx.fillPath(path);
 
-    BLFontFace face;
-    BLResult err = face.createFromFile("fonts/NotoSans-Regular.ttf");
+    BLFont symbolFontLarge;
+    symbolFontLarge.createFromFace(symbolFontFace_, 50.0f);
 
-    // We must handle a possible error returned by the loader.
-    if (err) {
-      printf("Failed to load a font-face (err=%u)\n", err);
-      return;
-    }
+    char digitalZero[5];
+    utf8_encode(digitalZero, 0x1FBF0 + 0);
 
-    BLFont font;
-    font.createFromFace(face, 50.0f);
+    ctx.fillUtf8Text(BLPoint(0, 50), symbolFontLarge, digitalZero);
+
+    BLFont regularFont;
+    regularFont.createFromFace(regularFontFace_, 24.0f);
+
+    BLFontMetrics fm = regularFont.metrics();
+    BLTextMetrics tm;
+    BLGlyphBuffer gb;
+
+    const char* pTeam1 = "TIGERs Mannheim";
 
     ctx.setFillStyle(BLRgba32(0xFF0000FF));
-    ctx.fillUtf8Text(BLPoint(60, 80), font, "Hello Blend2D!");
 
-    ctx.rotate(0.785398);
-    ctx.fillUtf8Text(BLPoint(250, 80), font, "Rotated Text");
+    gb.setUtf8Text(pTeam1, strlen(pTeam1));
+    regularFont.shape(gb);
+    regularFont.getTextMetrics(gb, tm);
+
+    double team1Width = tm.boundingBox.x1 - tm.boundingBox.x0;
+
+    ctx.fillGlyphRun(BLPoint(60, 80), regularFont, gb.glyphRun());
+//    ctx.fillUtf8Text(BLPoint(60, 80), regularFont, pTeam1);
+
+    ctx.setFillStyle(BLRgba32(0xFFFFFF00));
+    ctx.fillUtf8Text(BLPoint(60 + team1Width, 80), regularFont, "ER-Force");
+
+    ctx.setStrokeStyle(BLRgba32(0xFFFFFF00));
+    ctx.setStrokeWidth(15);
+    ctx.setStrokeStartCap(BL_STROKE_CAP_ROUND);
+    ctx.setStrokeEndCap(BL_STROKE_CAP_TRIANGLE_REV);
+    ctx.strokeLine(10, 200, 200, 200);
+
+    // Yellow Card
+    BLGradient linearY(BLLinearGradientValues(100, 0, 130, 50));
+    linearY.addStop(0.0, BLRgba32(0xFFFFFF80));
+    linearY.addStop(1.0, BLRgba32(0xFFFFFF00));
+
+    ctx.setFillStyle(linearY);
+    ctx.fillRoundRect(100, 0, 36, 50, 5);
+
+    // Red Card
+    BLGradient linearR(BLLinearGradientValues(150, 0, 180, 50));
+    linearR.addStop(0.0, BLRgba32(0xFFFF8080));
+    linearR.addStop(1.0, BLRgba32(0xFFFF0000));
+
+    ctx.setFillStyle(linearR);
+    ctx.fillRoundRect(150, 0, 36, 50, 5);
 
     // Detach the rendering context from `img`.
     ctx.end();
 
     BLImageData imgData;
-    img.getData(&imgData);
+    gamestateImage_.getData(&imgData);
 
-    // Let's use some built-in codecs provided by Blend2D.
-    BLImageCodec codec;
-    codec.findByName("PNG");
-    img.writeToFile("bl-getting-started-1.png", codec);
+    // Create a OpenGL texture identifier
+    glBindTexture(GL_TEXTURE_2D, gamestateTexture_);
+
+    // Setup filtering parameters for display
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // This is required on WebGL for non power-of-two textures
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Same
+
+    // Upload pixels into texture
+#if defined(GL_UNPACK_ROW_LENGTH) && !defined(__EMSCRIPTEN__)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+#endif
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgData.size.w, imgData.size.h, 0, GL_BGRA, GL_UNSIGNED_BYTE, imgData.pixelData);
 }

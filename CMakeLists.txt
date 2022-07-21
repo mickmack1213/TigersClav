@@ -15,7 +15,12 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
 set(BLEND2D_STATIC TRUE)
 include("blend2d/CMakeLists.txt")
 
+find_package(Protobuf REQUIRED)
+find_package(ZLIB REQUIRED)
+
 include_directories(
+    src
+    
     imgui
     imgui/backends
 )
@@ -24,6 +29,8 @@ add_executable(${PROJECT_NAME}
     src/main.cpp
     src/Application.cpp
     src/TigersClav.cpp
+    
+    src/gzstream.cpp
     
     imgui/imgui.cpp
     imgui/imgui_draw.cpp
@@ -36,7 +43,7 @@ add_executable(${PROJECT_NAME}
 )
 
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} glfw3 opengl32 Blend2D::Blend2D -static)
+    target_link_libraries(${PROJECT_NAME} glfw3 opengl32 Blend2D::Blend2D ${ZLIB_LIBRARIES} ${Protobuf_LIBRARIES} -static)
     target_link_options(${PROJECT_NAME} PRIVATE -mwindows)
 else()
     add_definitions(-DIMGUI_IMPL_OPENGL_ES2)
