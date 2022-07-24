@@ -45,7 +45,7 @@
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
-				<configuration artifactName="${ProjName}" buildArtefactType="cmake4eclipse.mbs.buildArtefactType.cmake" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=cmake4eclipse.mbs.buildArtefactType.cmake,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.release" description="" id="cmake4eclipse.mbs.config.release.337711927" name="Release" parent="cmake4eclipse.mbs.config.release">
+				<configuration artifactName="${ProjName}" buildArtefactType="cmake4eclipse.mbs.buildArtefactType.cmake" buildProperties="org.eclipse.cdt.build.core.buildArtefactType=cmake4eclipse.mbs.buildArtefactType.cmake,org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.release" description="" id="cmake4eclipse.mbs.config.release.337711927" name="Release" optionalBuildProperties="" parent="cmake4eclipse.mbs.config.release">
 					<folderInfo id="cmake4eclipse.mbs.config.release.337711927." name="/" resourcePath="">
 						<toolChain id="cmake4eclipse.mbs.config.release.toolChain.1889861186" name="CMake driven" superClass="cmake4eclipse.mbs.config.release.toolChain">
 							<targetPlatform id="cmake4eclipse.mbs.targetPlatform.cmake.487323981" name="Any Platform" superClass="cmake4eclipse.mbs.targetPlatform.cmake"/>

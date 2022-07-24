@@ -2,6 +2,12 @@
 #include <cstdio>
 #include <cstdint>
 #include <stdexcept>
+#include <fstream>
+#include <memory>
+#include "util/gzstream.h"
+#include "ImGuiFileDialog.h"
+#include "util/CustomFont.h"
+#include <chrono>
 
 static int utf8_encode(char* out, uint32_t utf)
 {
@@ -51,6 +57,7 @@ static int utf8_encode(char* out, uint32_t utf)
 }
 
 TigersClav::TigersClav()
+:gamelogFileName_(".")
 {
     BLResult blResult = regularFontFace_.createFromFile("fonts/NotoSans-Regular.ttf");
     if(blResult)
@@ -77,6 +84,40 @@ void TigersClav::render()
     ImGui::Checkbox("Demo Window", &showDemoWindow_);
 
     ImGui::Image((void*)(intptr_t)gamestateTexture_, ImVec2(gamestateImage_.width(), gamestateImage_.height()));
+
+    if(ImGui::Button("Load Gamelog"))
+    {
+        ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", gamelogFileName_.c_str(), 1, nullptr, ImGuiFileDialogFlags_Modal);
+    }
+
+    if(ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
+    {
+        // action if OK
+        if(ImGuiFileDialog::Instance()->IsOk())
+        {
+            std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
+            std::string filePath = ImGuiFileDialog::Instance()->GetCurrentPath();
+            // action
+
+            gamelogFileName_ = filePathName;
+
+            pLogLoader_.reset();
+            pLogLoader_ = std::make_unique<SSLGameLogLoader>(filePathName);
+        }
+
+        // close
+        ImGuiFileDialog::Instance()->Close();
+    }
+
+    if(pLogLoader_)
+    {
+        SSLGameLogStats stats = pLogLoader_->getStats();
+
+        ImGui::Text("Gamelog: %s", gamelogFileName_.c_str());
+        ImGui::Text("Size: %.1fMB", stats.totalSize/(1024.0f*1024.0f));
+        ImGui::Text("msgs: %u", stats.numMessages);
+        ImGui::Text("Duration: %.1f", stats.duration_s);
+    }
 
     ImGui::Dummy(ImVec2(0, 10));
     ImGui::Separator();

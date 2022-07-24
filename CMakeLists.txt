@@ -8,9 +8,9 @@ project(TigersClav VERSION ${GIT_VERSION})
 configure_file(src/git_version.h.in ${CMAKE_CURRENT_SOURCE_DIR}/src/git_version.h)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_C_FLAGS_DEBUG "-O0 -g")
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_FLAGS_DEBUG "-Og -g")
+set(CMAKE_CXX_FLAGS_DEBUG "-Og -g")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -21,19 +21,41 @@ find_package(FFmpeg REQUIRED COMPONENTS AVCODEC AVFORMAT AVUTIL SWSCALE)
 find_package(Protobuf REQUIRED)
 find_package(ZLIB REQUIRED)
 
+protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS
+    proto/ssl_gc_referee_message.proto
+    proto/ssl_gc_game_event.proto
+    proto/ssl_gc_common.proto
+    proto/ssl_gc_geometry.proto
+    proto/ssl_vision_wrapper.proto
+    proto/ssl_vision_wrapper_tracked.proto
+    proto/ssl_vision_detection.proto
+    proto/ssl_vision_geometry.proto
+    proto/ssl_vision_detection_tracked.proto
+)
+
 include_directories(
-    src
-    
     imgui
     imgui/backends
+    ImGuiFileDialog
+    
+    ${Protobuf_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+add_compile_options(
+    -Wno-deprecated-declarations
 )
 
 add_executable(${PROJECT_NAME} 
     src/main.cpp
     src/Application.cpp
     src/TigersClav.cpp
+    src/SSLGameLog.cpp
     
-    src/gzstream.cpp
+    src/util/gzstream.cpp
+    
+    ImGuiFileDialog/ImGuiFileDialog.cpp
+    src/util/CustomFont.cpp
     
     imgui/imgui.cpp
     imgui/imgui_draw.cpp
@@ -43,7 +65,11 @@ add_executable(${PROJECT_NAME}
     
     imgui/backends/imgui_impl_opengl3.cpp
     imgui/backends/imgui_impl_glfw.cpp
+    
+    ${PROTO_SRCS}
 )
+
+add_definitions(-DCUSTOM_IMGUIFILEDIALOG_CONFIG="../src/util/CustomImGuiFileDialogConfig.h")
 
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} glfw3 opengl32 Blend2D::Blend2D ${ZLIB_LIBRARIES} ${Protobuf_LIBRARIES} ${FFMPEG_LIBRARIES} -static)

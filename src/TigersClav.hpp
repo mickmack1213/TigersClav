@@ -5,6 +5,7 @@
 
 #include <GL/gl.h>
 #include <GL/glext.h>
+#include "SSLGameLog.hpp"
 
 class TigersClav : public Application
 {
@@ -15,6 +16,10 @@ public:
 
 private:
     void createGamestateOverlay();
+
+    std::unique_ptr<SSLGameLogLoader> pLogLoader_;
+
+    std::string gamelogFileName_;
 
     BLFontFace regularFontFace_;
     BLFontFace symbolFontFace_;
