@@ -2,10 +2,6 @@
 #include <filesystem>
 #include "util/gzstream.h"
 
-#include "ssl_gc_referee_message.pb.h"
-#include "ssl_vision_wrapper.pb.h"
-#include "ssl_vision_wrapper_tracked.pb.h"
-
 SSLGameLog::SSLGameLog(std::vector<SSLGameLogEntry>&& msgs, SSLGameLogStats stats)
 :messages_(msgs), stats_(stats)
 {
@@ -28,19 +24,35 @@ SSLGameLogLoader::~SSLGameLogLoader()
 
 void SSLGameLogLoader::loader(std::string filename)
 {
+    std::unique_ptr<std::istream> pFile;
+    size_t logDataSize;
+
     std::filesystem::path filepath(filename);
 
     if(filepath.extension() == ".gz")
     {
-        pFile_ = std::make_unique<igzstream>(filepath.string().c_str(), std::ios::binary | std::ios::in);
+        pFile = std::make_unique<igzstream>(filepath.string().c_str(), std::ios::binary | std::ios::in);
+        pFile->ignore(std::numeric_limits<std::streamsize>::max());
+        logDataSize = pFile->gcount();
+
+        pFile = std::make_unique<igzstream>(filepath.string().c_str(), std::ios::binary | std::ios::in);
     }
     else
     {
-        pFile_ = std::make_unique<std::ifstream>(filepath.string(), std::ios::binary);
+        pFile = std::make_unique<std::ifstream>(filepath.string(), std::ios::binary);
+        pFile->seekg(0, std::ios::end);
+        logDataSize = pFile->tellg();
+        pFile->seekg(0, std::ios::beg);
     }
 
+    std::cerr << "size: " << logDataSize << std::endl;
+/*
+    logData_.resize(logDataSize);
+
+    pFile->read(logData_.data(), logDataSize);
+*/
     char buf[12];
-    pFile_->read(buf, 12);
+    pFile->read(buf, 12);
 
     std::cerr << "FileTypeString: " << buf << std::endl;
 
@@ -48,12 +60,11 @@ void SSLGameLogLoader::loader(std::string filename)
 
     if(stats_.type != std::string("SSL_LOG_FILE"))
     {
-        pFile_ = nullptr;
         isDone_ = true;
         return;
     }
 
-    stats_.formatVersion = readInt32();
+    stats_.formatVersion = readInt32(*pFile);
     stats_.totalSize = 16;
 
     std::cerr << "Version: " << stats_.formatVersion << std::endl;
@@ -68,7 +79,7 @@ void SSLGameLogLoader::loader(std::string filename)
 
     int64_t firstTimestamp_ns = -1;
 
-    while(*pFile_)
+    while(*pFile)
     {
         if(shouldAbort_)
         {
@@ -77,9 +88,9 @@ void SSLGameLogLoader::loader(std::string filename)
 
         SSLGameLogEntry msg;
 
-        msg.timestamp_ns = readInt64();
-        msg.type = readInt32();
-        msg.size = readInt32();
+        msg.timestamp_ns = readInt64(*pFile);
+        msg.type = readInt32(*pFile);
+        msg.size = readInt32(*pFile);
         msg.pMsg = nullptr;
 
         if(msg.size < 0)
@@ -88,7 +99,7 @@ void SSLGameLogLoader::loader(std::string filename)
         if(parseBuffer_.size() < msg.size)
             parseBuffer_.resize(msg.size);
 
-        pFile_->read((char*)parseBuffer_.data(), msg.size);
+        pFile->read((char*)parseBuffer_.data(), msg.size);
 
         if(firstTimestamp_ns < 0)
             firstTimestamp_ns = msg.timestamp_ns;
@@ -145,7 +156,7 @@ void SSLGameLogLoader::loader(std::string filename)
     }
 
     pGameLog_ = std::make_shared<SSLGameLog>(std::move(messages_), stats_);
-    pFile_ = nullptr;
+    pFile = nullptr;
     isDone_ = true;
 }
 
@@ -161,18 +172,18 @@ SSLGameLogStats SSLGameLogLoader::getStats() const
     return copy;
 }
 
-int32_t SSLGameLogLoader::readInt32()
+int32_t SSLGameLogLoader::readInt32(std::istream& file)
 {
     uint8_t buf[4];
-    pFile_->read((char*)buf, 4);
+    file.read((char*)buf, 4);
 
     return (((uint32_t)buf[0]) << 24) | (((uint32_t)buf[1]) << 16) | (((uint32_t)buf[2]) << 8) | ((uint32_t)buf[3]);
 }
 
-int64_t SSLGameLogLoader::readInt64()
+int64_t SSLGameLogLoader::readInt64(std::istream& file)
 {
     uint8_t buf[8];
-    pFile_->read((char*)buf, 8);
+    file.read((char*)buf, 8);
 
     return (uint64_t)buf[0] << 56 |
            (uint64_t)buf[1] << 48 |

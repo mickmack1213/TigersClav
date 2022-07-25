@@ -6,8 +6,12 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <optional>
+#include <set>
 
-#include <google/protobuf/message.h>
+#include "ssl_gc_referee_message.pb.h"
+#include "ssl_vision_wrapper.pb.h"
+#include "ssl_vision_wrapper_tracked.pb.h"
 
 enum SSLMessageType
 {
@@ -43,6 +47,39 @@ struct SSLGameLogEntry
     std::shared_ptr<google::protobuf::Message> pMsg;
 };
 
+class SSLGameLog2
+{
+public:
+    typedef std::map<int64_t, int64_t> MsgMap;
+    typedef MsgMap::const_iterator MsgMapIter;
+
+    SSLGameLog2(std::string filename, std::set<SSLMessageType> blacklistedMsgs = {MESSAGE_BLANK, MESSAGE_UNKNOWN, MESSAGE_SSL_INDEX_2021});
+    ~SSLGameLog2();
+
+    bool good() const;
+
+    MsgMapIter begin() const { return msgOffsets_.begin(); }
+    MsgMapIter end() const { return msgOffsets_.end(); }
+
+    MsgMapIter findNext(MsgMapIter& iter, SSLMessageType type);
+    MsgMapIter findPrevious(MsgMapIter& iter, SSLMessageType type);
+
+    MsgMapIter findFirstMsgAfterTimestamp(int64_t timestamp, SSLMessageType type);
+    MsgMapIter findLastMsgBeforeTimestamp(int64_t timestamp, SSLMessageType type);
+
+    template<typename ProtoType>
+    std::optional<ProtoType> convertTo(MsgMapIter& iter);
+
+private:
+    int removeMsgTypes_;
+
+    std::istream dataStream_;
+
+    std::vector<uint8_t> logData_;
+
+    MsgMap msgOffsets_;
+};
+
 class SSLGameLog
 {
 public:
@@ -68,15 +105,14 @@ public:
 private:
     void loader(std::string filename);
 
-    int32_t readInt32();
-    int64_t readInt64();
+    int32_t readInt32(std::istream& file);
+    int64_t readInt64(std::istream& file);
 
     std::thread loaderThread_;
 
     std::atomic<bool> shouldAbort_;
     std::atomic<bool> isDone_;
 
-    std::unique_ptr<std::istream> pFile_;
     std::vector<uint8_t> parseBuffer_;
 
     SSLGameLogStats stats_;
@@ -85,4 +121,8 @@ private:
     std::vector<SSLGameLogEntry> messages_;
 
     std::shared_ptr<SSLGameLog> pGameLog_;
+
+
+    // ########
+    std::vector<char> logData_;
 };
