@@ -17,7 +17,7 @@ public:
 private:
     void createGamestateOverlay();
 
-    std::unique_ptr<SSLGameLogLoader> pLogLoader_;
+    std::unique_ptr<SSLGameLog> pGameLog_;
 
     std::string gamelogFileName_;
 

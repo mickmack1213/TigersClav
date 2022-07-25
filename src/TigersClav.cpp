@@ -101,22 +101,37 @@ void TigersClav::render()
 
             gamelogFileName_ = filePathName;
 
-            pLogLoader_.reset();
-            pLogLoader_ = std::make_unique<SSLGameLogLoader>(filePathName);
+            pGameLog_ = std::make_unique<SSLGameLog>(filePathName, std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020 });
         }
 
         // close
         ImGuiFileDialog::Instance()->Close();
     }
 
-    if(pLogLoader_)
+    if(pGameLog_)
     {
-        SSLGameLogStats stats = pLogLoader_->getStats();
+        SSLGameLogStats stats = pGameLog_->getStats();
 
         ImGui::Text("Gamelog: %s", gamelogFileName_.c_str());
+        ImGui::Text("Type: %s", stats.type.c_str());
+        ImGui::Text("Format: %d", stats.formatVersion);
         ImGui::Text("Size: %.1fMB", stats.totalSize/(1024.0f*1024.0f));
         ImGui::Text("msgs: %u", stats.numMessages);
-        ImGui::Text("Duration: %.1f", stats.duration_s);
+        ImGui::Text("vision2010: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2010]);
+        ImGui::Text("vision2014: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2014]);
+        ImGui::Text("ref:        %u", stats.numMessagesPerType[MESSAGE_SSL_REFBOX_2013]);
+        ImGui::Text("tracker:    %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_TRACKER_2020]);
+        ImGui::Text("Duration: %.1fs", stats.duration_s);
+
+        if(pGameLog_->isLoaded())
+        {
+            auto refIter = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013);
+            auto optRef = pGameLog_->convertTo<Referee>(refIter);
+            if(optRef)
+            {
+                ImGui::Text("Y: %s, B: %s", optRef->yellow().name().c_str(), optRef->blue().name().c_str());
+            }
+        }
     }
 
     ImGui::Dummy(ImVec2(0, 10));

@@ -8,6 +8,7 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <deque>
 
 #include "ssl_gc_referee_message.pb.h"
 #include "ssl_vision_wrapper.pb.h"
@@ -32,97 +33,81 @@ struct SSLGameLogStats
 
     uint32_t totalSize{0};
     uint32_t numMessages{0};
-    uint32_t unparsableMessages{0};
     double duration_s{0.0};
 
     std::map<SSLMessageType, uint32_t> numMessagesPerType;
 };
 
-struct SSLGameLogEntry
+struct __attribute__((packed)) SSLGameLogMsgHeader
 {
     int64_t timestamp_ns;
     int32_t type;
     int32_t size;
-
-    std::shared_ptr<google::protobuf::Message> pMsg;
-};
-
-class SSLGameLog2
-{
-public:
-    typedef std::map<int64_t, int64_t> MsgMap;
-    typedef MsgMap::const_iterator MsgMapIter;
-
-    SSLGameLog2(std::string filename, std::set<SSLMessageType> blacklistedMsgs = {MESSAGE_BLANK, MESSAGE_UNKNOWN, MESSAGE_SSL_INDEX_2021});
-    ~SSLGameLog2();
-
-    bool good() const;
-
-    MsgMapIter begin() const { return msgOffsets_.begin(); }
-    MsgMapIter end() const { return msgOffsets_.end(); }
-
-    MsgMapIter findNext(MsgMapIter& iter, SSLMessageType type);
-    MsgMapIter findPrevious(MsgMapIter& iter, SSLMessageType type);
-
-    MsgMapIter findFirstMsgAfterTimestamp(int64_t timestamp, SSLMessageType type);
-    MsgMapIter findLastMsgBeforeTimestamp(int64_t timestamp, SSLMessageType type);
-
-    template<typename ProtoType>
-    std::optional<ProtoType> convertTo(MsgMapIter& iter);
-
-private:
-    int removeMsgTypes_;
-
-    std::istream dataStream_;
-
-    std::vector<uint8_t> logData_;
-
-    MsgMap msgOffsets_;
 };
 
 class SSLGameLog
 {
 public:
-    SSLGameLog(std::vector<SSLGameLogEntry>&& msgs, SSLGameLogStats stats);
+    typedef std::map<int64_t, SSLGameLogMsgHeader*> MsgMap;
+    typedef MsgMap::const_iterator MsgMapIter;
 
-private:
-    std::vector<SSLGameLogEntry> messages_;
-    SSLGameLogStats stats_;
-};
-
-class SSLGameLogLoader
-{
-public:
-    SSLGameLogLoader(std::string filename);
-    ~SSLGameLogLoader();
+    SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTypes = RECORDED_MESSAGES);
+    ~SSLGameLog();
 
     SSLGameLogStats getStats() const;
-    bool isDone() const { return isDone_; }
-    void abort() { shouldAbort_ = true; }
+    bool isLoaded() const { return isLoaded_; }
+    void abortLoading() { shouldAbortLoading_ = true; }
 
-    std::shared_ptr<SSLGameLog> getGameLog() const { return pGameLog_; }
+    int64_t getFirstTimestamp_ns() const { return firstTimestamp_ns_; }
+    int64_t getLastTimestamp_ns() const { return lastTimestamp_ns_; }
+
+    MsgMapIter begin(SSLMessageType type) const { return messagesByType_.at(type).begin(); }
+    MsgMapIter end(SSLMessageType type) const { return messagesByType_.at(type).end(); }
+
+    MsgMapIter findFirstMsgAfterTimestamp(SSLMessageType type, int64_t timestamp) const;
+    MsgMapIter findLastMsgBeforeTimestamp(SSLMessageType type, int64_t timestamp) const;
+
+    template<typename ProtoType>
+    std::optional<ProtoType> convertTo(MsgMapIter& iter);
 
 private:
-    void loader(std::string filename);
+    void loader(std::string filename, std::set<SSLMessageType> loadMsgTypes);
+    uint8_t* alloc(size_t size);
 
     int32_t readInt32(std::istream& file);
     int64_t readInt64(std::istream& file);
 
     std::thread loaderThread_;
 
-    std::atomic<bool> shouldAbort_;
-    std::atomic<bool> isDone_;
-
-    std::vector<uint8_t> parseBuffer_;
+    std::atomic<bool> shouldAbortLoading_;
+    std::atomic<bool> isLoaded_;
 
     SSLGameLogStats stats_;
     mutable std::mutex statsMutex_;
 
-    std::vector<SSLGameLogEntry> messages_;
+    int64_t firstTimestamp_ns_;
+    int64_t lastTimestamp_ns_;
 
-    std::shared_ptr<SSLGameLog> pGameLog_;
+    static const std::set<SSLMessageType> RECORDED_MESSAGES;
+    static constexpr size_t MEM_POOL_CHUNK_SIZE = 16*1024*1024;
 
+    std::deque<std::vector<uint8_t>> memoryPools_;
+    size_t activePoolUsage_;
 
-    // ########
-    std::vector<char> logData_;
+    std::map<SSLMessageType, MsgMap> messagesByType_;
 };
+
+template<typename ProtoType>
+std::optional<ProtoType> SSLGameLog::convertTo(SSLGameLog::MsgMapIter& iter)
+{
+    ProtoType protoMsg;
+
+    const uint8_t* pProtoStart = reinterpret_cast<const uint8_t*>(iter->second) + sizeof(SSLGameLogMsgHeader);
+
+    if(protoMsg.ParseFromArray(pProtoStart, iter->second->size))
+    {
+        return std::optional<ProtoType>(std::move(protoMsg));
+    }
+
+    return std::optional<ProtoType>();
+}

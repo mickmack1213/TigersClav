@@ -1,166 +1,130 @@
 #include "SSLGameLog.hpp"
 #include <filesystem>
 #include "util/gzstream.h"
+#include <cstring>
 
-SSLGameLog::SSLGameLog(std::vector<SSLGameLogEntry>&& msgs, SSLGameLogStats stats)
-:messages_(msgs), stats_(stats)
+const std::set<SSLMessageType> SSLGameLog::RECORDED_MESSAGES = {
+                MESSAGE_SSL_VISION_2010,
+                MESSAGE_SSL_REFBOX_2013,
+                MESSAGE_SSL_VISION_2014,
+                MESSAGE_SSL_VISION_TRACKER_2020 };
+
+SSLGameLog::SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTypes)
+:shouldAbortLoading_(false),
+ isLoaded_(false),
+ activePoolUsage_(0),
+ firstTimestamp_ns_(-1),
+ lastTimestamp_ns_(-1)
 {
+    memoryPools_.emplace_back(std::vector<uint8_t>(MEM_POOL_CHUNK_SIZE));
+
+    loaderThread_ = std::thread(SSLGameLog::loader, this, filename, loadMsgTypes);
 }
 
-SSLGameLogLoader::SSLGameLogLoader(std::string filename)
-:shouldAbort_(false),
- isDone_(false)
+SSLGameLog::~SSLGameLog()
 {
-    loaderThread_ = std::thread(SSLGameLogLoader::loader, this, filename);
-}
-
-SSLGameLogLoader::~SSLGameLogLoader()
-{
-    shouldAbort_ = true;
+    shouldAbortLoading_ = true;
 
     if(loaderThread_.joinable())
         loaderThread_.join();
 }
 
-void SSLGameLogLoader::loader(std::string filename)
+void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTypes)
 {
-    std::unique_ptr<std::istream> pFile;
-    size_t logDataSize;
-
+    // Open logfile directly or through gzip stream
     std::filesystem::path filepath(filename);
+    std::unique_ptr<std::istream> pFile;
 
     if(filepath.extension() == ".gz")
-    {
         pFile = std::make_unique<igzstream>(filepath.string().c_str(), std::ios::binary | std::ios::in);
-        pFile->ignore(std::numeric_limits<std::streamsize>::max());
-        logDataSize = pFile->gcount();
-
-        pFile = std::make_unique<igzstream>(filepath.string().c_str(), std::ios::binary | std::ios::in);
-    }
     else
-    {
         pFile = std::make_unique<std::ifstream>(filepath.string(), std::ios::binary);
-        pFile->seekg(0, std::ios::end);
-        logDataSize = pFile->tellg();
-        pFile->seekg(0, std::ios::beg);
-    }
 
-    std::cerr << "size: " << logDataSize << std::endl;
-/*
-    logData_.resize(logDataSize);
-
-    pFile->read(logData_.data(), logDataSize);
-*/
+    // read header information (magic and version)
     char buf[12];
     pFile->read(buf, 12);
-
-    std::cerr << "FileTypeString: " << buf << std::endl;
 
     stats_.type = std::string(buf, 12);
 
     if(stats_.type != std::string("SSL_LOG_FILE"))
     {
-        isDone_ = true;
+        isLoaded_ = true;
         return;
     }
 
     stats_.formatVersion = readInt32(*pFile);
     stats_.totalSize = 16;
 
-    std::cerr << "Version: " << stats_.formatVersion << std::endl;
+    if(stats_.formatVersion != 1)
+    {
+        isLoaded_ = true;
+        return;
+    }
 
-    stats_.numMessagesPerType[SSLMessageType::MESSAGE_SSL_VISION_2010] = 0;
-    stats_.numMessagesPerType[SSLMessageType::MESSAGE_SSL_REFBOX_2013] = 0;
-    stats_.numMessagesPerType[SSLMessageType::MESSAGE_SSL_VISION_2014] = 0;
-    stats_.numMessagesPerType[SSLMessageType::MESSAGE_SSL_VISION_TRACKER_2020] = 0;
-    stats_.numMessagesPerType[SSLMessageType::MESSAGE_SSL_INDEX_2021] = 0;
-    stats_.numMessagesPerType[SSLMessageType::MESSAGE_BLANK] = 0;
-    stats_.numMessagesPerType[SSLMessageType::MESSAGE_UNKNOWN] = 0;
+    // prepare statistics
+    for(auto msgType : RECORDED_MESSAGES)
+        stats_.numMessagesPerType[msgType] = 0;
 
-    int64_t firstTimestamp_ns = -1;
-
+    // read full gamelog
     while(*pFile)
     {
-        if(shouldAbort_)
+        if(shouldAbortLoading_)
         {
             break;
         }
 
-        SSLGameLogEntry msg;
+        // read message header
+        SSLGameLogMsgHeader header;
 
-        msg.timestamp_ns = readInt64(*pFile);
-        msg.type = readInt32(*pFile);
-        msg.size = readInt32(*pFile);
-        msg.pMsg = nullptr;
+        header.timestamp_ns = readInt64(*pFile);
+        header.type = readInt32(*pFile);
+        header.size = readInt32(*pFile);
 
-        if(msg.size < 0)
+        const SSLMessageType msgType = static_cast<SSLMessageType>(header.type);
+
+        if(header.size < 0)
             break;
 
-        if(parseBuffer_.size() < msg.size)
-            parseBuffer_.resize(msg.size);
+        if(firstTimestamp_ns_ < 0)
+            firstTimestamp_ns_ = header.timestamp_ns;
 
-        pFile->read((char*)parseBuffer_.data(), msg.size);
-
-        if(firstTimestamp_ns < 0)
-            firstTimestamp_ns = msg.timestamp_ns;
-
+        // Update live statistics
         {
             std::lock_guard<std::mutex> statsLock(statsMutex_);
 
-            stats_.totalSize += msg.size + 16;
+            stats_.totalSize += header.size + sizeof(SSLGameLogMsgHeader);
             stats_.numMessages++;
 
-            if(msg.type < SSLMessageType::MESSAGE_LAST)
+            if(RECORDED_MESSAGES.find(msgType) != RECORDED_MESSAGES.end())
             {
-                if(msg.type != SSLMessageType::MESSAGE_SSL_INDEX_2021)
-                    stats_.duration_s = (msg.timestamp_ns - firstTimestamp_ns) * 1e-9;
-
-                stats_.numMessagesPerType[static_cast<SSLMessageType>(msg.type)]++;
+                stats_.numMessagesPerType[msgType]++;
+                stats_.duration_s = (header.timestamp_ns - firstTimestamp_ns_) * 1e-9;
+                lastTimestamp_ns_ = header.timestamp_ns;
             }
         }
 
-        switch(msg.type)
+        // If this message is not blacklisted copy it to memory pool
+        if(loadMsgTypes.find(msgType) != loadMsgTypes.end())
         {
-            case SSLMessageType::MESSAGE_SSL_VISION_2010:
-                break;
-            case SSLMessageType::MESSAGE_SSL_REFBOX_2013:
-                msg.pMsg = std::make_shared<Referee>();
-                break;
-            case SSLMessageType::MESSAGE_SSL_VISION_2014:
-                msg.pMsg = std::make_shared<SSL_WrapperPacket>();
-                break;
-            case SSLMessageType::MESSAGE_SSL_VISION_TRACKER_2020:
-                msg.pMsg = std::make_shared<TrackerWrapperPacket>();
-                break;
-            case SSLMessageType::MESSAGE_SSL_INDEX_2021:
-            case SSLMessageType::MESSAGE_BLANK:
-            case SSLMessageType::MESSAGE_UNKNOWN:
-                break;
-            default:
-                continue;
-        }
+            uint8_t* pBuf = alloc(header.size + sizeof(header));
 
-        if(msg.pMsg)
+            memcpy(pBuf, &header, sizeof(header));
+
+            pFile->read((char*)(pBuf + sizeof(header)), header.size);
+
+            messagesByType_[msgType][header.timestamp_ns] = reinterpret_cast<SSLGameLogMsgHeader*>(pBuf);
+        }
+        else
         {
-            if(msg.pMsg->ParseFromArray(parseBuffer_.data(), msg.size))
-            {
-                messages_.emplace_back(msg);
-            }
-            else
-            {
-                // parsing message failed
-                std::lock_guard<std::mutex> statsLock(statsMutex_);
-                stats_.unparsableMessages++;
-            }
+            // otherwise just ignore it
+            pFile->ignore(header.size);
         }
     }
 
-    pGameLog_ = std::make_shared<SSLGameLog>(std::move(messages_), stats_);
-    pFile = nullptr;
-    isDone_ = true;
+    isLoaded_ = true;
 }
 
-SSLGameLogStats SSLGameLogLoader::getStats() const
+SSLGameLogStats SSLGameLog::getStats() const
 {
     SSLGameLogStats copy;
 
@@ -172,7 +136,37 @@ SSLGameLogStats SSLGameLogLoader::getStats() const
     return copy;
 }
 
-int32_t SSLGameLogLoader::readInt32(std::istream& file)
+SSLGameLog::MsgMapIter SSLGameLog::findFirstMsgAfterTimestamp(SSLMessageType type, int64_t timestamp) const
+{
+    return messagesByType_.at(type).upper_bound(timestamp);
+}
+
+SSLGameLog::MsgMapIter SSLGameLog::findLastMsgBeforeTimestamp(SSLMessageType type, int64_t timestamp) const
+{
+    // this may also return an exact iterator if there is one at exactly "timestamp"
+    SSLGameLog::MsgMapIter iter = messagesByType_.at(type).upper_bound(timestamp);
+    if(iter != messagesByType_.at(type).begin())
+        iter--;
+
+    return iter;
+}
+
+
+uint8_t* SSLGameLog::alloc(size_t size)
+{
+    if(activePoolUsage_ + size > MEM_POOL_CHUNK_SIZE)
+    {
+        memoryPools_.emplace_back(std::vector<uint8_t>(MEM_POOL_CHUNK_SIZE));
+        activePoolUsage_ = 0;
+    }
+
+    uint8_t* pMem = memoryPools_.back().data() + activePoolUsage_;
+    activePoolUsage_ += size;
+
+    return pMem;
+}
+
+int32_t SSLGameLog::readInt32(std::istream& file)
 {
     uint8_t buf[4];
     file.read((char*)buf, 4);
@@ -180,7 +174,7 @@ int32_t SSLGameLogLoader::readInt32(std::istream& file)
     return (((uint32_t)buf[0]) << 24) | (((uint32_t)buf[1]) << 16) | (((uint32_t)buf[2]) << 8) | ((uint32_t)buf[3]);
 }
 
-int64_t SSLGameLogLoader::readInt64(std::istream& file)
+int64_t SSLGameLog::readInt64(std::istream& file)
 {
     uint8_t buf[8];
     file.read((char*)buf, 8);
