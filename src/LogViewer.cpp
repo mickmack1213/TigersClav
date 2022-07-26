@@ -18,9 +18,6 @@ void LogViewer::handle(const el::LogDispatchData* data) noexcept
 
 void LogViewer::render()
 {
-    ImGuiID dockspaceId = ImGui::GetID("DockSpace");
-    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_Once);
-
     ImGui::Begin("Log");
 
     ImGui::Checkbox("Auto-scroll", &autoScroll_);

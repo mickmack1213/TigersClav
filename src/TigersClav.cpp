@@ -117,6 +117,8 @@ void TigersClav::render()
             if (ImGui::MenuItem("Undo", "CTRL+Z")) {}
             if (ImGui::MenuItem("Redo", "CTRL+Y", false, false)) {}  // Disabled item
             ImGui::Separator();
+
+            ImGui::EndMenu();
         }
 
         ImGui::EndMenuBar();
@@ -125,7 +127,6 @@ void TigersClav::render()
     ImGui::End();
 
     el::Helpers::logDispatchCallback<LogViewer>("LogViewer")->render();
-
 
     createGamestateOverlay();
 
@@ -175,12 +176,41 @@ void TigersClav::render()
         }
     }
 
+    // Drawing and interaction tests
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    ImVec2 orig = ImGui::GetCursorScreenPos();
+    orig.x += 50;
+    ImGui::SetCursorScreenPos(orig);
+
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    float x = p.x + 4.0f;
+    float y = p.y + 4.0f;
+    float sz = 36.0f;
+    ImVec4 colf = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
+    const ImU32 col = ImColor(colf);
+    float th = 1.0f;
+
+    static float offset = 0.0f;
+
+    // draw calls do not affect cursor pos
+    draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x, y + sz), col);
+    draw_list->AddRect(ImVec2(x+offset, y), ImVec2(x + offset + sz, y + sz), ImColor(1.0f, 0.0f, 0.0f, 1.0f), 0.0f, ImDrawFlags_None, th);
+
+    // button starts at cursor pos
+    ImGui::InvisibleButton("canvas", ImGui::GetContentRegionAvail());
+    if (ImGui::IsItemActive())
+    {
+        draw_list->AddLine(ImGui::GetIO().MouseClickedPos[0], ImGui::GetIO().MousePos, ImGui::GetColorU32(ImGuiCol_Button), 4.0f); // Draw a line between the button and the mouse cursor
+        offset += ImGui::GetIO().MouseDelta.x;
+    }
+
     ImGui::End();
 }
 
 void TigersClav::createGamestateOverlay()
 {
-    // Attach a rendering context into `img`.
+    // Attach a rendering context to `img`.
     BLContext ctx(gamestateImage_);
 
     // Clear the image.
