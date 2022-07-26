@@ -7,6 +7,7 @@
 #include "util/gzstream.h"
 #include "ImGuiFileDialog.h"
 #include "util/CustomFont.h"
+#include "LogViewer.hpp"
 #include <chrono>
 
 static int utf8_encode(char* out, uint32_t utf)
@@ -74,21 +75,65 @@ TigersClav::TigersClav()
 
 void TigersClav::render()
 {
+    ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
+    const ImGuiViewport* viewport;
+
+    if (viewport == NULL)
+        viewport = ImGui::GetMainViewport();
+
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+
+    ImGuiWindowFlags host_window_flags = 0;
+    host_window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking;
+    host_window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_MenuBar;
+    if (dockspace_flags & ImGuiDockNodeFlags_PassthruCentralNode)
+        host_window_flags |= ImGuiWindowFlags_NoBackground;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("DockSpace", NULL, host_window_flags);
+    ImGui::PopStyleVar(3);
+
+    ImGuiID dockspaceId = ImGui::GetID("DockSpace");
+    ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspace_flags, NULL);
+
+    if(ImGui::BeginMenuBar())
+    {
+        if(ImGui::BeginMenu("File"))
+        {
+            if(ImGui::MenuItem("Load Gamelog", "CTRL+O"))
+            {
+                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, nullptr, ImGuiFileDialogFlags_Modal);
+            }
+
+            ImGui::EndMenu();
+        }
+
+        if(ImGui::BeginMenu("Edit"))
+        {
+            if (ImGui::MenuItem("Undo", "CTRL+Z")) {}
+            if (ImGui::MenuItem("Redo", "CTRL+Y", false, false)) {}  // Disabled item
+            ImGui::Separator();
+        }
+
+        ImGui::EndMenuBar();
+    }
+
+    ImGui::End();
+
+    el::Helpers::logDispatchCallback<LogViewer>("LogViewer")->render();
+
+
     createGamestateOverlay();
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Once);
-    ImGui::SetNextWindowSize(ImVec2(1000, 1200), ImGuiCond_Once);
+    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_Once);
 
-    ImGui::Begin("Setup"/*, 0, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize*/);
-
-    ImGui::Checkbox("Demo Window", &showDemoWindow_);
+    ImGui::Begin("Gamelog");
 
     ImGui::Image((void*)(intptr_t)gamestateTexture_, ImVec2(gamestateImage_.width(), gamestateImage_.height()));
-
-    if(ImGui::Button("Load Gamelog"))
-    {
-        ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, nullptr, ImGuiFileDialogFlags_Modal);
-    }
 
     if(ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
     {
@@ -129,12 +174,6 @@ void TigersClav::render()
             }
         }
     }
-
-    ImGui::Dummy(ImVec2(0, 10));
-    ImGui::Separator();
-    ImGui::Dummy(ImVec2(0, 10));
-
-    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
     ImGui::End();
 }

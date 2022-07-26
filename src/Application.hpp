@@ -15,7 +15,6 @@ protected:
     virtual void render() {}
 
     ImVec4 backgroundClearColor_;
-    bool showDemoWindow_;
 
 private:
     bool initGui();

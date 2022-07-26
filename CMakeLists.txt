@@ -51,8 +51,10 @@ add_executable(${PROJECT_NAME}
     src/Application.cpp
     src/TigersClav.cpp
     src/SSLGameLog.cpp
+    src/LogViewer.cpp
     
     src/util/gzstream.cpp
+    src/util/easylogging++.cc
     
     ImGuiFileDialog/ImGuiFileDialog.cpp
     src/util/CustomFont.cpp
@@ -69,7 +71,10 @@ add_executable(${PROJECT_NAME}
     ${PROTO_SRCS}
 )
 
-add_definitions(-DCUSTOM_IMGUIFILEDIALOG_CONFIG="../src/util/CustomImGuiFileDialogConfig.h")
+add_definitions(
+    -DCUSTOM_IMGUIFILEDIALOG_CONFIG="../src/util/CustomImGuiFileDialogConfig.h"
+    -DELPP_STL_LOGGING
+    -DELPP_THREAD_SAFE)
 
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} glfw3 opengl32 Blend2D::Blend2D ${ZLIB_LIBRARIES} ${Protobuf_LIBRARIES} ${FFMPEG_LIBRARIES} -static)

@@ -1,6 +1,7 @@
 #include "SSLGameLog.hpp"
 #include <filesystem>
 #include "util/gzstream.h"
+#include "util/easylogging++.h"
 #include <cstring>
 
 const std::set<SSLMessageType> SSLGameLog::RECORDED_MESSAGES = {
@@ -54,6 +55,8 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
         messagesByType_[msgType] = MsgMap();
     }
 
+    LOG(TRACE) << "Trying to load gamelog: " << filename;
+
     // Open logfile directly or through gzip stream
     std::filesystem::path filepath(filename);
     std::unique_ptr<std::istream> pFile;
@@ -85,6 +88,8 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
         isLoaded_ = true;
         return;
     }
+
+    LOG(TRACE) << "Valid header detected, loading messages...";
 
     // read full gamelog
     while(*pFile)
@@ -147,6 +152,8 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
             pFile->ignore(header.size);
         }
     }
+
+    LOG(INFO) << "Loaded gamelog: " << filename;
 
     isLoaded_ = true;
 }
