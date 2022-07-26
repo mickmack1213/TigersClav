@@ -19,7 +19,7 @@ private:
 
     std::unique_ptr<SSLGameLog> pGameLog_;
 
-    std::string gamelogFileName_;
+    std::string lastFileOpenPath_;
 
     BLFontFace regularFontFace_;
     BLFontFace symbolFontFace_;

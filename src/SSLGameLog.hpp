@@ -54,9 +54,14 @@ public:
     SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTypes = RECORDED_MESSAGES);
     ~SSLGameLog();
 
+    const std::string& getFilename() const { return filename_; }
+
     SSLGameLogStats getStats() const;
     bool isLoaded() const { return isLoaded_; }
     void abortLoading() { shouldAbortLoading_ = true; }
+
+    bool isValid() const;
+    bool isEmpty(SSLMessageType type) const { return messagesByType_.at(type).empty(); }
 
     int64_t getFirstTimestamp_ns() const { return firstTimestamp_ns_; }
     int64_t getLastTimestamp_ns() const { return lastTimestamp_ns_; }
@@ -76,6 +81,8 @@ private:
 
     int32_t readInt32(std::istream& file);
     int64_t readInt64(std::istream& file);
+
+    std::string filename_;
 
     std::thread loaderThread_;
 

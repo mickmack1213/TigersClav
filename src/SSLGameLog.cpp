@@ -29,8 +29,31 @@ SSLGameLog::~SSLGameLog()
         loaderThread_.join();
 }
 
+bool SSLGameLog::isValid() const
+{
+    SSLGameLogStats stats = getStats();
+
+    if(stats.type != std::string("SSL_LOG_FILE"))
+        return false;
+
+    if(stats.formatVersion != 1)
+        return false;
+
+    if(stats.numMessages == 0)
+        return false;
+
+    return true;
+}
+
 void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTypes)
 {
+    // prepare statistics
+    for(auto msgType : RECORDED_MESSAGES)
+    {
+        stats_.numMessagesPerType[msgType] = 0;
+        messagesByType_[msgType] = MsgMap();
+    }
+
     // Open logfile directly or through gzip stream
     std::filesystem::path filepath(filename);
     std::unique_ptr<std::istream> pFile;
@@ -39,6 +62,8 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
         pFile = std::make_unique<igzstream>(filepath.string().c_str(), std::ios::binary | std::ios::in);
     else
         pFile = std::make_unique<std::ifstream>(filepath.string(), std::ios::binary);
+
+    filename_ = filepath.stem().string();
 
     // read header information (magic and version)
     char buf[12];
@@ -61,10 +86,6 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
         return;
     }
 
-    // prepare statistics
-    for(auto msgType : RECORDED_MESSAGES)
-        stats_.numMessagesPerType[msgType] = 0;
-
     // read full gamelog
     while(*pFile)
     {
@@ -79,6 +100,9 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
         header.timestamp_ns = readInt64(*pFile);
         header.type = readInt32(*pFile);
         header.size = readInt32(*pFile);
+
+        if(!*pFile)
+            break;
 
         const SSLMessageType msgType = static_cast<SSLMessageType>(header.type);
 
@@ -111,6 +135,9 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
             memcpy(pBuf, &header, sizeof(header));
 
             pFile->read((char*)(pBuf + sizeof(header)), header.size);
+
+            if(!*pFile)
+                break;
 
             messagesByType_[msgType][header.timestamp_ns] = reinterpret_cast<SSLGameLogMsgHeader*>(pBuf);
         }

@@ -57,7 +57,7 @@ static int utf8_encode(char* out, uint32_t utf)
 }
 
 TigersClav::TigersClav()
-:gamelogFileName_(".")
+:lastFileOpenPath_(".")
 {
     BLResult blResult = regularFontFace_.createFromFile("fonts/NotoSans-Regular.ttf");
     if(blResult)
@@ -87,7 +87,7 @@ void TigersClav::render()
 
     if(ImGui::Button("Load Gamelog"))
     {
-        ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", gamelogFileName_.c_str(), 1, nullptr, ImGuiFileDialogFlags_Modal);
+        ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, nullptr, ImGuiFileDialogFlags_Modal);
     }
 
     if(ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
@@ -95,13 +95,9 @@ void TigersClav::render()
         // action if OK
         if(ImGuiFileDialog::Instance()->IsOk())
         {
-            std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
-            std::string filePath = ImGuiFileDialog::Instance()->GetCurrentPath();
-            // action
+            lastFileOpenPath_ = ImGuiFileDialog::Instance()->GetCurrentPath() + "/";
 
-            gamelogFileName_ = filePathName;
-
-            pGameLog_ = std::make_unique<SSLGameLog>(filePathName, std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020 });
+            pGameLog_ = std::make_unique<SSLGameLog>(ImGuiFileDialog::Instance()->GetFilePathName(), std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020 });
         }
 
         // close
@@ -112,7 +108,7 @@ void TigersClav::render()
     {
         SSLGameLogStats stats = pGameLog_->getStats();
 
-        ImGui::Text("Gamelog: %s", gamelogFileName_.c_str());
+        ImGui::Text("Gamelog: %s", pGameLog_->getFilename().c_str());
         ImGui::Text("Type: %s", stats.type.c_str());
         ImGui::Text("Format: %d", stats.formatVersion);
         ImGui::Text("Size: %.1fMB", stats.totalSize/(1024.0f*1024.0f));
@@ -123,7 +119,7 @@ void TigersClav::render()
         ImGui::Text("tracker:    %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_TRACKER_2020]);
         ImGui::Text("Duration: %.1fs", stats.duration_s);
 
-        if(pGameLog_->isLoaded())
+        if(pGameLog_->isLoaded() && !pGameLog_->isEmpty(MESSAGE_SSL_REFBOX_2013))
         {
             auto refIter = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013);
             auto optRef = pGameLog_->convertTo<Referee>(refIter);
