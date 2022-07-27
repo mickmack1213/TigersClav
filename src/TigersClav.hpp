@@ -6,6 +6,7 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include "SSLGameLog.hpp"
+#include "Video.hpp"
 
 class TigersClav : public Application
 {
@@ -18,6 +19,7 @@ private:
     void createGamestateOverlay();
 
     std::unique_ptr<SSLGameLog> pGameLog_;
+    std::unique_ptr<Video> pVideo_;
 
     std::string lastFileOpenPath_;
 

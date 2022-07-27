@@ -71,6 +71,14 @@ TigersClav::TigersClav()
     glGenTextures(1, &gamestateTexture_);
 
     gamestateImage_.create(800, 300, BL_FORMAT_PRGB32);
+
+    std::ifstream openPath("lastFileOpenPath.txt");
+    if(openPath)
+    {
+        lastFileOpenPath_.resize(256);
+        openPath.getline(lastFileOpenPath_.data(), lastFileOpenPath_.size());
+        openPath.close();
+    }
 }
 
 void TigersClav::render()
@@ -106,7 +114,12 @@ void TigersClav::render()
         {
             if(ImGui::MenuItem("Load Gamelog", "CTRL+O"))
             {
-                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, nullptr, ImGuiFileDialogFlags_Modal);
+                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, 0, ImGuiFileDialogFlags_Modal);
+            }
+
+            if(ImGui::MenuItem("Load Video"))
+            {
+                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".*", lastFileOpenPath_, 1, (void*)1, ImGuiFileDialogFlags_Modal);
             }
 
             ImGui::EndMenu();
@@ -143,7 +156,20 @@ void TigersClav::render()
         {
             lastFileOpenPath_ = ImGuiFileDialog::Instance()->GetCurrentPath() + "/";
 
-            pGameLog_ = std::make_unique<SSLGameLog>(ImGuiFileDialog::Instance()->GetFilePathName(), std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020 });
+            std::ofstream openPath("lastFileOpenPath.txt", std::ofstream::trunc);
+            openPath << lastFileOpenPath_;
+            openPath.close();
+
+            uint64_t type = (uint64_t)ImGuiFileDialog::Instance()->GetUserDatas();
+
+            if(type == 0)
+            {
+                pGameLog_ = std::make_unique<SSLGameLog>(ImGuiFileDialog::Instance()->GetFilePathName(), std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020 });
+            }
+            else if(type == 1)
+            {
+                pVideo_ = std::make_unique<Video>(ImGuiFileDialog::Instance()->GetFilePathName());
+            }
         }
 
         // close

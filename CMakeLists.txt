@@ -52,6 +52,7 @@ add_executable(${PROJECT_NAME}
     src/TigersClav.cpp
     src/SSLGameLog.cpp
     src/LogViewer.cpp
+    src/Video.cpp
     
     src/util/gzstream.cpp
     src/util/easylogging++.cc
