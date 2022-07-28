@@ -4,7 +4,8 @@
 #include "blend2d.h"
 
 #include <GL/gl.h>
-#include <GL/glext.h>
+//#include <GL/glext.h>
+
 #include "SSLGameLog.hpp"
 #include "Video.hpp"
 
@@ -30,4 +31,9 @@ private:
 
     GLuint gamestateTexture_;
     ImVec2 gamestateSize_;
+
+    GLuint videoTexture_;
+    bool drawVideoFrame_;
+
+    GLuint greyShaderProgram_;
 };

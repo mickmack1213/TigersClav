@@ -10,6 +10,11 @@
 #include "LogViewer.hpp"
 #include <chrono>
 
+const std::string videoGrey_source =
+    #include "shaders/video_grey.fs"
+;
+
+
 static int utf8_encode(char* out, uint32_t utf)
 {
     if(utf <= 0x7F)
@@ -57,8 +62,27 @@ static int utf8_encode(char* out, uint32_t utf)
     }
 }
 
+static void setShaderProgram(const ImDrawList* parent_list, const ImDrawCmd* cmd)
+{
+    static GLint activeProgram = 0;
+
+    GLuint* program = (GLuint*)cmd->UserCallbackData;
+
+    if(program)
+    {
+        glGetIntegerv(GL_ACTIVE_PROGRAM, &activeProgram);
+
+        glUseProgram(*program);
+    }
+    else
+    {
+        glUseProgram(activeProgram);
+    }
+}
+
 TigersClav::TigersClav()
-:lastFileOpenPath_(".")
+:lastFileOpenPath_("."),
+ drawVideoFrame_(false)
 {
     BLResult blResult = regularFontFace_.createFromFile("fonts/NotoSans-Regular.ttf");
     if(blResult)
@@ -71,6 +95,33 @@ TigersClav::TigersClav()
     glGenTextures(1, &gamestateTexture_);
 
     gamestateImage_.create(800, 300, BL_FORMAT_PRGB32);
+
+    glGenTextures(1, &videoTexture_);
+
+    // check this for yuv: https://gist.github.com/tsangz189
+    // or for grey output:
+    //   uniform sampler2D A;
+    //   vec3 result = vec3(texture(A, TexCoord).r);
+
+    const GLchar* source = videoGrey_source.c_str();
+    greyShaderProgram_ = glCreateShaderProgramv(GL_FRAGMENT_SHADER, 1, &source);
+
+    GLint isLinked = 0;
+    glGetProgramiv(greyShaderProgram_, GL_LINK_STATUS, &isLinked);
+    if(isLinked == GL_FALSE)
+    {
+        GLint maxLength = 0;
+        glGetProgramiv(greyShaderProgram_, GL_INFO_LOG_LENGTH, &maxLength);
+
+        // The maxLength includes the NULL character
+        std::string infoLog(maxLength, 0);
+        glGetProgramInfoLog(greyShaderProgram_, maxLength, &maxLength, &infoLog[0]);
+
+        // The program is useless now. So delete it.
+        glDeleteProgram(greyShaderProgram_);
+
+        LOG(ERROR) << "Shader compilation failed:\n" << infoLog;
+    }
 
     std::ifstream openPath("lastFileOpenPath.txt");
     if(openPath)
@@ -200,6 +251,42 @@ void TigersClav::render()
                 ImGui::Text("Y: %s, B: %s", optRef->yellow().name().c_str(), optRef->blue().name().c_str());
             }
         }
+    }
+
+    ImGui::Checkbox("Draw videoframe", &drawVideoFrame_);
+
+    if(pVideo_ && pVideo_->isLoaded() && drawVideoFrame_)
+    {
+        AVFrame* pFrame = pVideo_->getFrame(98765);
+
+        // Create a OpenGL texture identifier
+        glBindTexture(GL_TEXTURE_2D, videoTexture_);
+
+        // Setup filtering parameters for display
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // This is required on WebGL for non power-of-two textures
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Same
+
+        // Upload pixels into texture
+    #if defined(GL_UNPACK_ROW_LENGTH) && !defined(__EMSCRIPTEN__)
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    #endif
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, pFrame->width, pFrame->height, 0, GL_RED, GL_UNSIGNED_BYTE, pFrame->data[0]);
+
+        ImVec2 displaySize(pFrame->width/2, pFrame->height/2);
+        ImVec2 p = ImGui::GetCursorScreenPos();
+
+        ImGui::GetWindowDrawList()->PushTextureID((void*)(intptr_t)videoTexture_);
+        ImGui::GetWindowDrawList()->AddCallback(&setShaderProgram, &greyShaderProgram_);
+        ImGui::GetWindowDrawList()->AddImage((void*)(intptr_t)videoTexture_, p, ImVec2(p.x + displaySize.x, p.y + displaySize.y));
+        ImGui::GetWindowDrawList()->AddCallback(&setShaderProgram, 0);
+        ImGui::GetWindowDrawList()->PopTextureID();
+
+        ImGui::Dummy(displaySize);
+
+//        ImGui::Image((void*)(intptr_t)videoTexture_, ImVec2(pFrame->width/2, pFrame->height/2));
     }
 
     // Drawing and interaction tests

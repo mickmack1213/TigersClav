@@ -1,12 +1,14 @@
 #pragma once
 
+#include <GL/gl3w.h>
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
 
 class Application
 {
 public:
+    Application();
     virtual ~Application() {}
 
     int run();

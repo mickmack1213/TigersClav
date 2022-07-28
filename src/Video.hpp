@@ -14,6 +14,9 @@ public:
     Video(std::string filename);
     ~Video();
 
+    bool isLoaded() const { return isLoaded_; }
+    AVFrame* getFrame(int64_t timestamp);
+
 private:
     std::string err2str(int errnum);
 
@@ -21,7 +24,10 @@ private:
 
     AVFormatContext* pFormatContext_;
     AVCodec* pCodec_;
+    AVStream* pVideoStream_;
     AVCodecContext* pCodecContext_;
     AVFrame* pFrame_;
     AVPacket* pPacket_;
+
+    int64_t lastGetFrameTimestamp_;
 };

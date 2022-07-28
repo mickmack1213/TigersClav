@@ -7,11 +7,22 @@
 #endif
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
 
+#include "imgui_impl_opengl3.h"
+
 #include "util/CustomFont.h"
+#include "util/easylogging++.h"
+
+#include <stdexcept>
 
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
+}
+
+Application::Application()
+{
+    if(!initGui())
+        throw std::runtime_error("Initializing GUI failed");
 }
 
 bool Application::initGui()
@@ -54,6 +65,14 @@ bool Application::initGui()
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1); // Enable vsync
 
+    if(gl3wInit())
+    {
+        LOG(ERROR) << "failed to initialize OpenGL";
+        return false;
+    }
+
+    LOG(INFO) << "OpenGL " << glGetString(GL_VERSION) << ", GLSL " << glGetString(GL_SHADING_LANGUAGE_VERSION);
+
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -92,9 +111,6 @@ void Application::shutdownGui()
 
 int Application::run()
 {
-    if(!initGui())
-        return 1;
-
     // Main loop
     while(!glfwWindowShouldClose(window_))
     {

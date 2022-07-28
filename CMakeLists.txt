@@ -37,6 +37,7 @@ include_directories(
     imgui
     imgui/backends
     ImGuiFileDialog
+    src/util
     
     ${Protobuf_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -59,6 +60,8 @@ add_executable(${PROJECT_NAME}
     
     ImGuiFileDialog/ImGuiFileDialog.cpp
     src/util/CustomFont.cpp
+    
+    src/util/gl3w.c
     
     imgui/imgui.cpp
     imgui/imgui_draw.cpp
