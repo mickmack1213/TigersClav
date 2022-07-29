@@ -135,6 +135,12 @@ AVFrame* Video::getFrame(int64_t timestamp)
                 LOG(INFO) << "- Frame: " << pCodecContext_->frame_number << ", type: " << av_get_picture_type_char(pFrame_->pict_type)
                           << ", PTS: " << pFrame_->pts << ", format: " << pFrame_->format;
 
+                for(int i = 0; i < AV_NUM_DATA_POINTERS; i++)
+                {
+                    if(pFrame_->data[i])
+                        LOG(INFO) << "Index " << i << " linesize: " << pFrame_->linesize[i];
+                }
+
                 lastGetFrameTimestamp_ = timestamp;
                 break;
             }

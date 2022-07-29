@@ -54,6 +54,7 @@ add_executable(${PROJECT_NAME}
     src/SSLGameLog.cpp
     src/LogViewer.cpp
     src/Video.cpp
+    src/ImageComposer.cpp
     
     src/util/gzstream.cpp
     src/util/easylogging++.cc
@@ -62,6 +63,7 @@ add_executable(${PROJECT_NAME}
     src/util/CustomFont.cpp
     
     src/util/gl3w.c
+    src/util/ShaderProgram.cpp
     
     imgui/imgui.cpp
     imgui/imgui_draw.cpp

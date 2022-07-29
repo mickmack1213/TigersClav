@@ -4,10 +4,11 @@
 #include "blend2d.h"
 
 #include <GL/gl.h>
-//#include <GL/glext.h>
 
 #include "SSLGameLog.hpp"
 #include "Video.hpp"
+#include "util/ShaderProgram.hpp"
+#include "ImageComposer.hpp"
 
 class TigersClav : public Application
 {
@@ -21,6 +22,7 @@ private:
 
     std::unique_ptr<SSLGameLog> pGameLog_;
     std::unique_ptr<Video> pVideo_;
+    std::unique_ptr<ImageComposer> pImageComposer_;
 
     std::string lastFileOpenPath_;
 
@@ -32,8 +34,5 @@ private:
     GLuint gamestateTexture_;
     ImVec2 gamestateSize_;
 
-    GLuint videoTexture_;
     bool drawVideoFrame_;
-
-    GLuint greyShaderProgram_;
 };
