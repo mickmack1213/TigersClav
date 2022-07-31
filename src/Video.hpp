@@ -7,6 +7,11 @@ extern "C" {
 }
 
 #include <string>
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
+#include <list>
 
 class Video
 {
@@ -18,7 +23,19 @@ public:
     AVFrame* getFrame(int64_t timestamp);
 
 private:
+    void preloader();
     std::string err2str(int errnum);
+
+    std::thread preloaderThread_;
+    std::atomic<bool> runPreloaderThread_;
+
+    std::mutex preloadMutex_;
+    std::condition_variable preloadCondition_;
+
+    int32_t cacheSize_;
+    std::list<AVFrame*> cachedFrames_;
+    std::atomic<int64_t> requestedPts_;
+
 
     bool isLoaded_;
 

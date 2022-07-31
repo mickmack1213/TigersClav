@@ -13,7 +13,9 @@ Video::Video(std::string filename)
  pAudioCodec_(0),
  pAudioStream_(0),
  pAudioCodecContext_(0),
- lastGetFrameTimestamp_(-1)
+ lastGetFrameTimestamp_(-1),
+ runPreloaderThread_(true),
+ cacheSize_(50)
 {
     int result;
 
@@ -129,11 +131,22 @@ Video::Video(std::string filename)
         return;
     }
 
+    preloaderThread_ = std::thread(preloader, this);
+
     isLoaded_ = true;
 }
 
 Video::~Video()
 {
+    runPreloaderThread_ = false;
+    preloadCondition_.notify_one();
+
+    if(preloaderThread_.joinable())
+        preloaderThread_.join();
+
+    for(AVFrame* pFrame : cachedFrames_)
+        av_frame_free(&pFrame);
+
     if(pFormatContext_)
         avformat_close_input(&pFormatContext_);
 
@@ -160,86 +173,91 @@ AVFrame* Video::getFrame(int64_t timestamp)
     if(lastGetFrameTimestamp_ == timestamp)
         return pFrame_;
 
-    av_seek_frame(pFormatContext_, pVideoStream_->index, timestamp, AVSEEK_FLAG_BACKWARD);
 
-    int how_many_packets_to_process = 50;
-
-    while(av_read_frame(pFormatContext_, pPacket_) >= 0)
-    {
-        if(pPacket_->stream_index == pVideoStream_->index)
-        {
-            LOG(INFO) << "Video PTS: " << pPacket_->pts << ", DTS: " << pPacket_->dts << ", size: " << pPacket_->size;
-
-            result = avcodec_send_packet(pVideoCodecContext_, pPacket_);
-            if(result < 0)
-            {
-                LOG(ERROR) << "Error in avcodec_send_packet: " << err2str(result);
-                break;
-            }
-
-            result = avcodec_receive_frame(pVideoCodecContext_, pFrame_);
-            if(result >= 0)
-            {
-                float pts_s = (float)pFrame_->pts * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
-
-                LOG(INFO) << "- Frame: " << pVideoCodecContext_->frame_number << ", type: " << av_get_picture_type_char(pFrame_->pict_type)
-                          << ", PTS: " << pFrame_->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame_->format;
-
-                for(int i = 0; i < AV_NUM_DATA_POINTERS; i++)
-                {
-                    if(pFrame_->data[i])
-                        LOG(INFO) << "Index " << i << " linesize: " << pFrame_->linesize[i];
-                }
-
-                lastGetFrameTimestamp_ = timestamp;
-                break;
-            }
-            else
-            {
-                LOG(WARNING) << "avcodec_receive_frame result: " << err2str(result);
-            }
-
-            if(--how_many_packets_to_process <= 0)
-                break;
-        }
-
-        if(pPacket_->stream_index == pAudioStream_->index)
-        {
-            LOG(INFO) << "Audio PTS: " << pPacket_->pts << ", DTS: " << pPacket_->dts << ", size: " << pPacket_->size;
-
-            result = avcodec_send_packet(pAudioCodecContext_, pPacket_);
-            if(result < 0)
-            {
-                LOG(ERROR) << "Error in avcodec_send_packet: " << err2str(result);
-                break;
-            }
-
-            result = avcodec_receive_frame(pAudioCodecContext_, pFrame_);
-            if(result >= 0)
-            {
-                float pts_s = (float)pFrame_->pts * pAudioStream_->time_base.num / pAudioStream_->time_base.den;
-
-                LOG(INFO) << "- Frame: " << pAudioCodecContext_->frame_number << ", sample rate: " << pFrame_->sample_rate
-                          << ", PTS: " << pFrame_->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame_->format << ", num samples: "
-                          << pFrame_->nb_samples << ", bytesPerSample: " << av_get_bytes_per_sample((AVSampleFormat)pFrame_->format);
-
-
-                for(int i = 0; i < AV_NUM_DATA_POINTERS; i++)
-                {
-                    if(pFrame_->data[i])
-                        LOG(INFO) << "Index " << i << " linesize: " << pFrame_->linesize[i];
-                }
-            }
-            else
-            {
-                LOG(WARNING) << "avcodec_receive_frame result: " << err2str(result);
-            }
-        }
-
-        av_packet_unref(pPacket_);
-    }
 
     return pFrame_;
+}
+
+void Video::preloader()
+{
+    int result;
+
+    while(runPreloaderThread_)
+    {
+        std::unique_lock<std::mutex> lock(preloadMutex_);
+        preloadCondition_.wait(lock);
+
+        if(cachedFrames_.empty() || requestedPts_ < cachedFrames_.front()->pts || requestedPts_ > cachedFrames_.back()->pts)
+        {
+            // requested frame is no where near to being cached, we need to seek
+            for(AVFrame* pFrame : cachedFrames_)
+                av_frame_free(&pFrame);
+
+            cachedFrames_.clear();
+
+            int32_t remainingFrames = cacheSize_;
+
+            av_seek_frame(pFormatContext_, pVideoStream_->index, requestedPts_, AVSEEK_FLAG_BACKWARD);
+
+            while(av_read_frame(pFormatContext_, pPacket_) >= 0)
+            {
+                if(pPacket_->stream_index == pVideoStream_->index)
+                {
+                    LOG(INFO) << "Video PTS: " << pPacket_->pts << ", DTS: " << pPacket_->dts << ", size: " << pPacket_->size;
+
+                    result = avcodec_send_packet(pVideoCodecContext_, pPacket_);
+                    if(result < 0)
+                    {
+                        LOG(ERROR) << "Error in avcodec_send_packet: " << err2str(result);
+                        break;
+                    }
+
+                    result = avcodec_receive_frame(pVideoCodecContext_, pFrame_);
+                    if(result >= 0)
+                    {
+                        float pts_s = (float)pFrame_->pts * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
+
+                        LOG(INFO) << "- Frame: " << pVideoCodecContext_->frame_number << ", type: " << av_get_picture_type_char(pFrame_->pict_type)
+                                  << ", PTS: " << pFrame_->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame_->format;
+
+                        for(int i = 0; i < AV_NUM_DATA_POINTERS; i++)
+                        {
+                            if(pFrame_->data[i])
+                                LOG(INFO) << "Index " << i << " linesize: " << pFrame_->linesize[i];
+                        }
+
+                        cachedFrames_.push_back(pFrame_);
+
+                        pFrame_ = av_frame_alloc();
+                        if(!pFrame_)
+                        {
+                            LOG(ERROR) << "No more memory for AVFrame";
+                            break; // TODO: handle this cleverly?
+                        }
+
+                        if(pFrame_->pts > requestedPts_)
+                            remainingFrames--;
+
+                        if(remainingFrames <= 0)
+                            break;
+                    }
+                    else
+                    {
+                        LOG(WARNING) << "avcodec_receive_frame result: " << err2str(result);
+                    }
+                }
+
+                av_packet_unref(pPacket_);
+            }
+        }
+        else
+        {
+            // requested frame is in the cached range, check how many more frames we should preload
+
+        }
+
+        // TODO: load data
+    }
 }
 
 std::string Video::err2str(int errnum)
