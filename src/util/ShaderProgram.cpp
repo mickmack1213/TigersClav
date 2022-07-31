@@ -85,18 +85,18 @@ void ShaderProgram::use()
     glUseProgram(program_);
 }
 
-GLuint ShaderProgram::getAttribLocation(std::string name)
+GLint ShaderProgram::getAttribLocation(std::string name)
 {
     if(!good_)
         return 0;
 
-    return (GLuint)glGetAttribLocation(program_, name.c_str());
+    return glGetAttribLocation(program_, name.c_str());
 }
 
-GLuint ShaderProgram::getUniformLocation(std::string name)
+GLint ShaderProgram::getUniformLocation(std::string name)
 {
     if(!good_)
         return 0;
 
-    return (GLuint)glGetUniformLocation(program_, name.c_str());
+    return glGetUniformLocation(program_, name.c_str());
 }

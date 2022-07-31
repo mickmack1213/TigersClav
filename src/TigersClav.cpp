@@ -9,70 +9,20 @@
 #include "util/CustomFont.h"
 #include "LogViewer.hpp"
 #include <chrono>
-
-static int utf8_encode(char* out, uint32_t utf)
-{
-    if(utf <= 0x7F)
-    {
-        // Plain ASCII
-        out[0] = (char)utf;
-        out[1] = 0;
-        return 1;
-    }
-    else if(utf <= 0x07FF)
-    {
-        // 2-byte unicode
-        out[0] = (char)(((utf >> 6) & 0x1F) | 0xC0);
-        out[1] = (char)(((utf >> 0) & 0x3F) | 0x80);
-        out[2] = 0;
-        return 2;
-    }
-    else if(utf <= 0xFFFF)
-    {
-        // 3-byte unicode
-        out[0] = (char)(((utf >> 12) & 0x0F) | 0xE0);
-        out[1] = (char)(((utf >> 6) & 0x3F) | 0x80);
-        out[2] = (char)(((utf >> 0) & 0x3F) | 0x80);
-        out[3] = 0;
-        return 3;
-    }
-    else if(utf <= 0x10FFFF)
-    {
-        // 4-byte unicode
-        out[0] = (char)(((utf >> 18) & 0x07) | 0xF0);
-        out[1] = (char)(((utf >> 12) & 0x3F) | 0x80);
-        out[2] = (char)(((utf >> 6) & 0x3F) | 0x80);
-        out[3] = (char)(((utf >> 0) & 0x3F) | 0x80);
-        out[4] = 0;
-        return 4;
-    }
-    else
-    {
-        // error - use replacement character
-        out[0] = (char)0xEF;
-        out[1] = (char)0xBF;
-        out[2] = (char)0xBD;
-        out[3] = 0;
-        return 0;
-    }
-}
+#include <iomanip>
 
 TigersClav::TigersClav()
 :lastFileOpenPath_("."),
- drawVideoFrame_(false)
+ drawVideoFrame_(false),
+ gameLogRefPos_(0),
+ gameLogRefPosHovered_(false),
+ tPlayGamelog_ns_(-1)
 {
-    BLResult blResult = regularFontFace_.createFromFile("fonts/NotoSans-Regular.ttf");
-    if(blResult)
-        throw std::runtime_error("Regular font not found");
+    glGenTextures(1, &scoreBoardTexture_);
+    glGenTextures(1, &fieldVisualizerTexture_);
 
-    blResult = symbolFontFace_.createFromFile("fonts/NotoSansSymbols2-Regular.ttf");
-    if(blResult)
-        throw std::runtime_error("Symbol font not found");
-
-    glGenTextures(1, &gamestateTexture_);
-
-    gamestateImage_.create(800, 300, BL_FORMAT_PRGB32);
-
+    pScoreBoard_ = std::make_unique<ScoreBoard>();
+    pFieldVisualizer_ = std::make_unique<FieldVisualizer>();
     pImageComposer_ = std::make_unique<ImageComposer>(ImVec2(3840, 2160));
 
     std::ifstream openPath("lastFileOpenPath.txt");
@@ -86,6 +36,7 @@ TigersClav::TigersClav()
 
 void TigersClav::render()
 {
+    // Setup docking
     ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
     const ImGuiViewport* viewport;
 
@@ -111,6 +62,7 @@ void TigersClav::render()
     ImGuiID dockspaceId = ImGui::GetID("DockSpace");
     ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspace_flags, NULL);
 
+    // Draw main menu
     if(ImGui::BeginMenuBar())
     {
         if(ImGui::BeginMenu("File"))
@@ -142,16 +94,7 @@ void TigersClav::render()
 
     ImGui::End();
 
-    el::Helpers::logDispatchCallback<LogViewer>("LogViewer")->render();
-
-    createGamestateOverlay();
-
-    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_Once);
-
-    ImGui::Begin("Gamelog");
-
-    ImGui::Image((void*)(intptr_t)gamestateTexture_, ImVec2(gamestateImage_.width(), gamestateImage_.height()));
-
+    // File Dialog handling
     if(ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
     {
         // action if OK
@@ -167,7 +110,11 @@ void TigersClav::render()
 
             if(type == 0)
             {
-                pGameLog_ = std::make_unique<SSLGameLog>(ImGuiFileDialog::Instance()->GetFilePathName(), std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020 });
+                pGameLog_ = std::make_unique<SSLGameLog>(ImGuiFileDialog::Instance()->GetFilePathName(),
+                                std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020, MESSAGE_SSL_VISION_2014 });
+                gameLogRefPos_ = 0;
+                pFieldVisualizer_->setGeometry(nullptr);
+                trackerSources_.clear();
             }
             else if(type == 1)
             {
@@ -179,31 +126,183 @@ void TigersClav::render()
         ImGuiFileDialog::Instance()->Close();
     }
 
+    // Log Panel
+    el::Helpers::logDispatchCallback<LogViewer>("LogViewer")->render();
+
+    // Gamelog Panel
+    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+    ImGui::Begin("Gamelog");
+
+    ImVec2 regionAvail = ImGui::GetContentRegionAvail();
+
+    const float aspectRatioScoreBoard = (float)pScoreBoard_->getImageData().size.h / pScoreBoard_->getImageData().size.w;
+    const float aspectRatioField = (float)pFieldVisualizer_->getImageData().size.h / pFieldVisualizer_->getImageData().size.w;
+
+    createGamestateTextures();
+
+    ImGui::Image((void*)(intptr_t)scoreBoardTexture_, ImVec2(regionAvail.x, regionAvail.x*aspectRatioScoreBoard));
+    ImGui::Image((void*)(intptr_t)fieldVisualizerTexture_, ImVec2(regionAvail.x, regionAvail.x*aspectRatioField));
+
     if(pGameLog_)
     {
-        SSLGameLogStats stats = pGameLog_->getStats();
-
-        ImGui::Text("Gamelog: %s", pGameLog_->getFilename().c_str());
-        ImGui::Text("Type: %s", stats.type.c_str());
-        ImGui::Text("Format: %d", stats.formatVersion);
-        ImGui::Text("Size: %.1fMB", stats.totalSize/(1024.0f*1024.0f));
-        ImGui::Text("msgs: %u", stats.numMessages);
-        ImGui::Text("vision2010: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2010]);
-        ImGui::Text("vision2014: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2014]);
-        ImGui::Text("ref:        %u", stats.numMessagesPerType[MESSAGE_SSL_REFBOX_2013]);
-        ImGui::Text("tracker:    %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_TRACKER_2020]);
-        ImGui::Text("Duration: %.1fs", stats.duration_s);
-
         if(pGameLog_->isLoaded() && !pGameLog_->isEmpty(MESSAGE_SSL_REFBOX_2013))
         {
-            auto refIter = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013);
+            // Logic
+            if(!pFieldVisualizer_->hasGeometry())
+            {
+                auto visionIter = pGameLog_->begin(MESSAGE_SSL_VISION_2014);
+                while(visionIter != pGameLog_->end(MESSAGE_SSL_VISION_2014))
+                {
+                    auto optVision = pGameLog_->convertTo<SSL_WrapperPacket>(visionIter);
+                    if(optVision && optVision->has_geometry())
+                    {
+                        LOG(INFO) << "Found Geometry Frame. "
+                                  << optVision->geometry().field().field_length() << "x" << optVision->geometry().field().field_width();
+
+                        pFieldVisualizer_->setGeometry(optVision);
+                        break;
+                    }
+
+                    visionIter++;
+                }
+            }
+
+            // Data info and stats
+            SSLGameLog::MsgMapIter refIter;
+
+            if(tPlayGamelog_ns_ > 0)
+            {
+                refIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_REFBOX_2013, tPlayGamelog_ns_);
+                gameLogRefPos_ = std::distance(pGameLog_->begin(MESSAGE_SSL_REFBOX_2013), refIter);
+            }
+            else
+            {
+                refIter = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013);
+                std::advance(refIter, gameLogRefPos_);
+            }
             auto optRef = pGameLog_->convertTo<Referee>(refIter);
+
+            auto trackerIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_VISION_TRACKER_2020, refIter->first);
+            auto optTracker = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
+
+            if(optTracker)
+            {
+                trackerSources_[optTracker->uuid()] = optTracker->has_source_name() ? optTracker->source_name() : "Unknown";
+
+                while(trackerIter != pGameLog_->end(MESSAGE_SSL_VISION_TRACKER_2020) && !preferredTracker_.empty() && optTracker->uuid() != preferredTracker_)
+                {
+                    optTracker = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
+
+                    trackerIter++;
+                }
+
+                pFieldVisualizer_->update(optTracker);
+            }
+
             if(optRef)
             {
-                ImGui::Text("Y: %s, B: %s", optRef->yellow().name().c_str(), optRef->blue().name().c_str());
+                pScoreBoard_->update(optRef);
+            }
+
+            // Slider
+            size_t numRefMessages = pGameLog_->getNumMessages(MESSAGE_SSL_REFBOX_2013);
+
+            float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+            ImGui::PushButtonRepeat(true);
+            if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (gameLogRefPosHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
+            {
+                if(gameLogRefPos_ > 0)
+                    gameLogRefPos_--;
+
+                tPlayGamelog_ns_ = -1;
+            }
+
+            ImGui::SameLine(0.0f, spacing);
+            ImGui::SetNextItemWidth(-78.0f);
+            ImGui::SliderInt("##Ref Message Pos", &gameLogRefPos_, 0, numRefMessages-1, "%d", ImGuiSliderFlags_AlwaysClamp);
+            gameLogRefPosHovered_ = ImGui::IsItemHovered();
+            if(ImGui::IsItemEdited())
+                tPlayGamelog_ns_ = -1;
+
+            ImGui::SameLine(0.0f, spacing);
+            if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (gameLogRefPosHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
+            {
+                if(gameLogRefPos_ < numRefMessages-1)
+                    gameLogRefPos_++;
+
+                tPlayGamelog_ns_ = -1;
+            }
+
+            ImGui::PopButtonRepeat();
+
+            ImGui::SameLine(0.0f, spacing);
+
+            if(tPlayGamelog_ns_ < 0)
+            {
+                if(ImGui::Button("Play", ImVec2(50, 0)))
+                {
+                    tPlayGamelog_ns_ = refIter->first;
+                }
+
+            }
+            else
+            {
+                tPlayGamelog_ns_ += (int64_t)((double)ImGui::GetIO().DeltaTime * 1e9);
+
+                if(ImGui::Button("Pause", ImVec2(50, 0)) || tPlayGamelog_ns_ > pGameLog_->getLastTimestamp_ns())
+                {
+                    tPlayGamelog_ns_ = -1;
+                }
+            }
+
+            // Tracker source selection
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("Tracker Source: ");
+            ImGui::SameLine();
+
+            for(const auto& source : trackerSources_)
+            {
+                if(ImGui::RadioButton(source.second.c_str(), source.first == preferredTracker_))
+                    preferredTracker_ = source.first;
+
+                ImGui::SameLine();
+            }
+
+            ImGui::NewLine();
+
+            if(optRef)
+            {
+                uint64_t timestamp_us = optRef->packet_timestamp();
+                int64_t unixTimestamp = timestamp_us / 1000000;
+                std::tm tm = *std::localtime(&unixTimestamp);
+                std::stringstream dateStream;
+                dateStream << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+                ImGui::Text("Time: %s.%03u", dateStream.str().c_str(), (timestamp_us / 1000) % 1000);
             }
         }
+
+        if(ImGui::CollapsingHeader("Gamelog Details", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            SSLGameLogStats stats = pGameLog_->getStats();
+
+            ImGui::Text("Gamelog: %s", pGameLog_->getFilename().c_str());
+            ImGui::Text("Type: %s", stats.type.c_str());
+            ImGui::Text("Format: %d", stats.formatVersion);
+            ImGui::Text("Size: %.1fMB", stats.totalSize/(1024.0f*1024.0f));
+            ImGui::Text("msgs: %u", stats.numMessages);
+            ImGui::Text("vision2010: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2010]);
+            ImGui::Text("vision2014: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2014]);
+            ImGui::Text("ref:        %u", stats.numMessagesPerType[MESSAGE_SSL_REFBOX_2013]);
+            ImGui::Text("tracker:    %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_TRACKER_2020]);
+            ImGui::Text("Duration: %.1fs", stats.duration_s);
+        }
     }
+
+    ImGui::End();
+
+    // Video Panel
+    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+    ImGui::Begin("Video");
 
     ImGui::Checkbox("Draw videoframe", &drawVideoFrame_);
 
@@ -220,8 +319,10 @@ void TigersClav::render()
 
     ImGui::Image((void*)(intptr_t)pImageComposer_->getTexture(), ImVec2(3840/4, 2160/4));
 
+    ImGui::End();
+
     // Drawing and interaction tests
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+/*    ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     ImVec2 orig = ImGui::GetCursorScreenPos();
     orig.x += 50;
@@ -248,95 +349,30 @@ void TigersClav::render()
         draw_list->AddLine(ImGui::GetIO().MouseClickedPos[0], ImGui::GetIO().MousePos, ImGui::GetColorU32(ImGuiCol_Button), 4.0f); // Draw a line between the button and the mouse cursor
         offset += ImGui::GetIO().MouseDelta.x;
     }
-
-    ImGui::End();
+*/
 }
 
-void TigersClav::createGamestateOverlay()
+void TigersClav::createGamestateTextures()
 {
-    // Attach a rendering context to `img`.
-    BLContext ctx(gamestateImage_);
+    BLImageData imgData = pScoreBoard_->getImageData();
 
-    // Clear the image.
-    ctx.setCompOp(BL_COMP_OP_SRC_COPY);
-
-    ctx.setFillStyle(BLRgba32(0xFF000000));
-    ctx.fillAll();
-
-    ctx.setFillStyle(BLRgba32(0xFFFFFFFF));
-
-    BLFont symbolFontLarge;
-    symbolFontLarge.createFromFace(symbolFontFace_, 50.0f);
-
-    char digitalZero[5];
-    utf8_encode(digitalZero, 0x1FBF0 + 0);
-
-    ctx.fillUtf8Text(BLPoint(0, 50), symbolFontLarge, digitalZero);
-
-    BLFont regularFont;
-    regularFont.createFromFace(regularFontFace_, 24.0f);
-
-    BLFontMetrics fm = regularFont.metrics();
-    BLTextMetrics tm;
-    BLGlyphBuffer gb;
-
-    const char* pTeam1 = "TIGERs Mannheim";
-
-    ctx.setFillStyle(BLRgba32(0xFF0000FF));
-
-    gb.setUtf8Text(pTeam1, strlen(pTeam1));
-    regularFont.shape(gb);
-    regularFont.getTextMetrics(gb, tm);
-
-    double team1Width = tm.boundingBox.x1 - tm.boundingBox.x0;
-
-    ctx.fillGlyphRun(BLPoint(60, 80), regularFont, gb.glyphRun());
-//    ctx.fillUtf8Text(BLPoint(60, 80), regularFont, pTeam1);
-
-    ctx.setFillStyle(BLRgba32(0xFFFFFF00));
-    ctx.fillUtf8Text(BLPoint(60 + team1Width, 80), regularFont, "ER-Force");
-
-    ctx.setStrokeStyle(BLRgba32(0xFFFFFF00));
-    ctx.setStrokeWidth(15);
-    ctx.setStrokeStartCap(BL_STROKE_CAP_ROUND);
-    ctx.setStrokeEndCap(BL_STROKE_CAP_TRIANGLE_REV);
-    ctx.strokeLine(10, 200, 200, 200);
-
-    // Yellow Card
-    BLGradient linearY(BLLinearGradientValues(100, 0, 130, 50));
-    linearY.addStop(0.0, BLRgba32(0xFFFFFF80));
-    linearY.addStop(1.0, BLRgba32(0xFFFFFF00));
-
-    ctx.setFillStyle(linearY);
-    ctx.fillRoundRect(100, 0, 36, 50, 5);
-
-    // Red Card
-    BLGradient linearR(BLLinearGradientValues(150, 0, 180, 50));
-    linearR.addStop(0.0, BLRgba32(0xFFFF8080));
-    linearR.addStop(1.0, BLRgba32(0xFFFF0000));
-
-    ctx.setFillStyle(linearR);
-    ctx.fillRoundRect(150, 0, 36, 50, 5);
-
-    // Detach the rendering context from `img`.
-    ctx.end();
-
-    BLImageData imgData;
-    gamestateImage_.getData(&imgData);
-
-    // Create a OpenGL texture identifier
-    glBindTexture(GL_TEXTURE_2D, gamestateTexture_);
-
-    // Setup filtering parameters for display
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // This is required on WebGL for non power-of-two textures
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); // Same
-
-    // Upload pixels into texture
-#if defined(GL_UNPACK_ROW_LENGTH) && !defined(__EMSCRIPTEN__)
+    glBindTexture(GL_TEXTURE_2D, scoreBoardTexture_);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-#endif
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgData.size.w, imgData.size.h, 0, GL_BGRA, GL_UNSIGNED_BYTE, imgData.pixelData);
 
+    imgData = pFieldVisualizer_->getImageData();
+
+    glBindTexture(GL_TEXTURE_2D, fieldVisualizerTexture_);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imgData.size.w, imgData.size.h, 0, GL_BGRA, GL_UNSIGNED_BYTE, imgData.pixelData);
 }

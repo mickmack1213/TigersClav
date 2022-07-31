@@ -17,8 +17,8 @@ public:
 
     void use();
 
-    GLuint getAttribLocation(std::string name);
-    GLuint getUniformLocation(std::string name);
+    GLint getAttribLocation(std::string name);
+    GLint getUniformLocation(std::string name);
 
 private:
     GLuint program_;

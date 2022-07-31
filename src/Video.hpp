@@ -23,11 +23,15 @@ private:
     bool isLoaded_;
 
     AVFormatContext* pFormatContext_;
-    AVCodec* pCodec_;
+    AVCodec* pVideoCodec_;
     AVStream* pVideoStream_;
-    AVCodecContext* pCodecContext_;
+    AVCodecContext* pVideoCodecContext_;
     AVFrame* pFrame_;
     AVPacket* pPacket_;
+
+    AVCodec* pAudioCodec_;
+    AVStream* pAudioStream_;
+    AVCodecContext* pAudioCodecContext_;
 
     int64_t lastGetFrameTimestamp_;
 };

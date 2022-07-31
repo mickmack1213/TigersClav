@@ -6,7 +6,6 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
-#include <optional>
 #include <set>
 #include <deque>
 
@@ -66,6 +65,8 @@ public:
     int64_t getFirstTimestamp_ns() const { return firstTimestamp_ns_; }
     int64_t getLastTimestamp_ns() const { return lastTimestamp_ns_; }
 
+    size_t getNumMessages(SSLMessageType type) const { return messagesByType_.at(type).size(); }
+
     MsgMapIter begin(SSLMessageType type) const { return messagesByType_.at(type).begin(); }
     MsgMapIter end(SSLMessageType type) const { return messagesByType_.at(type).end(); }
 
@@ -73,7 +74,7 @@ public:
     MsgMapIter findLastMsgBeforeTimestamp(SSLMessageType type, int64_t timestamp) const;
 
     template<typename ProtoType>
-    std::optional<ProtoType> convertTo(MsgMapIter& iter);
+    std::shared_ptr<ProtoType> convertTo(MsgMapIter& iter);
 
 private:
     void loader(std::string filename, std::set<SSLMessageType> loadMsgTypes);
@@ -105,16 +106,16 @@ private:
 };
 
 template<typename ProtoType>
-std::optional<ProtoType> SSLGameLog::convertTo(SSLGameLog::MsgMapIter& iter)
+std::shared_ptr<ProtoType> SSLGameLog::convertTo(SSLGameLog::MsgMapIter& iter)
 {
-    ProtoType protoMsg;
+    std::shared_ptr<ProtoType> pProtoMsg = std::make_shared<ProtoType>();
 
     const uint8_t* pProtoStart = reinterpret_cast<const uint8_t*>(iter->second) + sizeof(SSLGameLogMsgHeader);
 
-    if(protoMsg.ParseFromArray(pProtoStart, iter->second->size))
+    if(pProtoMsg->ParseFromArray(pProtoStart, iter->second->size))
     {
-        return std::optional<ProtoType>(std::move(protoMsg));
+        return pProtoMsg;
     }
 
-    return std::optional<ProtoType>();
+    return nullptr;
 }

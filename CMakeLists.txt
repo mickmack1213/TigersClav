@@ -55,6 +55,8 @@ add_executable(${PROJECT_NAME}
     src/LogViewer.cpp
     src/Video.cpp
     src/ImageComposer.cpp
+    src/ScoreBoard.cpp
+    src/FieldVisualizer.cpp
     
     src/util/gzstream.cpp
     src/util/easylogging++.cc

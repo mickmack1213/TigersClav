@@ -2,7 +2,8 @@ R""(
 #version 130
 
 uniform sampler2D Texture;
-uniform sampler2D TextureVU;
+uniform sampler2D TextureU;
+uniform sampler2D TextureV;
 
 in vec2 Frag_UV;
 in vec4 Frag_Color;
@@ -17,8 +18,8 @@ void main()
     vec3 yuv2b = vec3(1.164, 2.018, 0.0);
 
     yuv.x = texture(Texture, Frag_UV.st).r - 0.0625;
-    yuv.y = texture(TextureVU, Frag_UV.st).g - 0.5;
-    yuv.z = texture(TextureVU, Frag_UV.st).r - 0.5;
+    yuv.y = texture(TextureU, Frag_UV.st).r - 0.5;
+    yuv.z = texture(TextureV, Frag_UV.st).r - 0.5;
 
     rgb.x = dot(yuv, yuv2r);
     rgb.y = dot(yuv, yuv2g);

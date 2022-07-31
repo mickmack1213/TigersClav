@@ -13,7 +13,7 @@ public:
     ~ImageComposer();
 
     void begin();
-    void drawVideoFrame(AVFrame* pFrame, ImVec2 pos = ImVec2(0, 0), ImVec2 size = ImVec2(-1, -1));
+    void drawVideoFrameGrey(AVFrame* pFrame, ImVec2 pos = ImVec2(0, 0), ImVec2 size = ImVec2(-1, -1));
     void drawVideoFrameRGB(AVFrame* pFrame, ImVec2 pos = ImVec2(0, 0), ImVec2 size = ImVec2(-1, -1));
     void end();
 
@@ -21,6 +21,9 @@ public:
     GLuint getTexture() const { return renderTexture_; }
 
 private:
+    void updateRect(ImVec2 pos, ImVec2 size);
+    void prepareShader(std::unique_ptr<ShaderProgram>& shader);
+
     ImVec2 renderSize_;
 
     GLint imguiFramebuffer_;
@@ -34,19 +37,5 @@ private:
     GLuint VAO_;
     GLuint EBO_;
 
-    GLuint videoTexture_;
-    GLuint videoTextureVU_;
-
-    GLuint uniformLocationTex_;
-    GLuint uniformLocationProjMtx_;
-    GLuint attribLocationVtxPos_;
-    GLuint attribLocationVtxUV_;
-    GLuint attribLocationVtxColor_;
-
-    GLuint rgbUniformLocationTex_;
-    GLuint rgbUniformLocationTexVU_;
-    GLuint rgbUniformLocationProjMtx_;
-    GLuint rgbAttribLocationVtxPos_;
-    GLuint rgbAttribLocationVtxUV_;
-    GLuint rgbAttribLocationVtxColor_;
+    GLuint videoTextures_[3];
 };

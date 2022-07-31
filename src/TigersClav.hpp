@@ -9,6 +9,8 @@
 #include "Video.hpp"
 #include "util/ShaderProgram.hpp"
 #include "ImageComposer.hpp"
+#include "ScoreBoard.hpp"
+#include "FieldVisualizer.hpp"
 
 class TigersClav : public Application
 {
@@ -18,21 +20,27 @@ public:
     void render() override;
 
 private:
-    void createGamestateOverlay();
+    void createGamestateTextures();
 
     std::unique_ptr<SSLGameLog> pGameLog_;
     std::unique_ptr<Video> pVideo_;
     std::unique_ptr<ImageComposer> pImageComposer_;
+    std::unique_ptr<ScoreBoard> pScoreBoard_;
+    std::unique_ptr<FieldVisualizer> pFieldVisualizer_;
 
     std::string lastFileOpenPath_;
 
-    BLFontFace regularFontFace_;
-    BLFontFace symbolFontFace_;
+    int gameLogRefPos_;
+    bool gameLogRefPosHovered_;
 
-    BLImage gamestateImage_;
+    std::map<std::string, std::string> trackerSources_;
+    std::string preferredTracker_;
 
-    GLuint gamestateTexture_;
-    ImVec2 gamestateSize_;
+    int64_t tPlayGamelog_ns_;
+
+
+    GLuint scoreBoardTexture_;
+    GLuint fieldVisualizerTexture_;
 
     bool drawVideoFrame_;
 };
