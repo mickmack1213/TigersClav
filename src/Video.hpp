@@ -22,9 +22,14 @@ public:
     bool isLoaded() const { return isLoaded_; }
     AVFrame* getFrame(int64_t timestamp);
 
+    enum AVPixelFormat internalGetHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts);
+
 private:
     void preloader();
+    void loadFrames(int32_t remainingFrames);
     std::string err2str(int errnum);
+
+    void runBenchmark();
 
     std::thread preloaderThread_;
     std::atomic<bool> runPreloaderThread_;
@@ -43,12 +48,13 @@ private:
     AVCodec* pVideoCodec_;
     AVStream* pVideoStream_;
     AVCodecContext* pVideoCodecContext_;
+    enum AVPixelFormat hwPixFormat_;
+    AVBufferRef *pHwDeviceContext_;
+
     AVFrame* pFrame_;
     AVPacket* pPacket_;
 
     AVCodec* pAudioCodec_;
     AVStream* pAudioStream_;
     AVCodecContext* pAudioCodecContext_;
-
-    int64_t lastGetFrameTimestamp_;
 };

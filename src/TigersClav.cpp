@@ -312,7 +312,8 @@ void TigersClav::render()
     {
         AVFrame* pFrame = pVideo_->getFrame(98765);
 
-        pImageComposer_->drawVideoFrameRGB(pFrame);
+        if(pFrame)
+            pImageComposer_->drawVideoFrameRGB(pFrame);
     }
 
     pImageComposer_->end();
