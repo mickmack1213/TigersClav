@@ -38,6 +38,10 @@ private:
 
     int64_t tPlayGamelog_ns_;
 
+    int videoFramePos_;
+    float videoDeltaRemainder_;
+    bool videoFramePosHovered_;
+
 
     GLuint scoreBoardTexture_;
     GLuint fieldVisualizerTexture_;

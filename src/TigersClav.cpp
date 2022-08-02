@@ -16,7 +16,10 @@ TigersClav::TigersClav()
  drawVideoFrame_(false),
  gameLogRefPos_(0),
  gameLogRefPosHovered_(false),
- tPlayGamelog_ns_(-1)
+ tPlayGamelog_ns_(-1),
+ videoFramePos_(0),
+ videoFramePosHovered_(false),
+ videoDeltaRemainder_(-1.0f)
 {
     glGenTextures(1, &scoreBoardTexture_);
     glGenTextures(1, &fieldVisualizerTexture_);
@@ -310,7 +313,62 @@ void TigersClav::render()
 
     if(pVideo_ && pVideo_->isLoaded() && drawVideoFrame_)
     {
-        AVFrame* pFrame = pVideo_->getFrame(98765);
+        // Slider
+        int64_t lastFrameId = pVideo_->getLastFrameId();
+
+        float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+        ImGui::PushButtonRepeat(true);
+        if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (videoFramePosHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
+        {
+            if(videoFramePos_ > 0)
+                videoFramePos_--;
+
+            videoDeltaRemainder_ = -1;
+        }
+
+        ImGui::SameLine(0.0f, spacing);
+        ImGui::SetNextItemWidth(-78.0f);
+        ImGui::SliderInt("##Video Message Pos", &videoFramePos_, 0, lastFrameId-1, "%d", ImGuiSliderFlags_AlwaysClamp);
+        videoFramePosHovered_ = ImGui::IsItemHovered();
+        if(ImGui::IsItemEdited())
+            videoDeltaRemainder_ = -1;
+
+        ImGui::SameLine(0.0f, spacing);
+        if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (videoFramePosHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
+        {
+            if(videoFramePos_ < lastFrameId-1)
+                videoFramePos_++;
+
+            videoDeltaRemainder_ = -1;
+        }
+
+        ImGui::PopButtonRepeat();
+
+        ImGui::SameLine(0.0f, spacing);
+
+        if(videoDeltaRemainder_ < 0)
+        {
+            if(ImGui::Button("Play", ImVec2(50, 0)))
+            {
+                videoDeltaRemainder_ = 0.0f;
+            }
+        }
+        else
+        {
+            double passedTime = ImGui::GetIO().DeltaTime + videoDeltaRemainder_;
+            int passedFrames = (int)(passedTime / pVideo_->getFrameDeltaTime());
+
+            videoDeltaRemainder_ = std::max(passedTime - passedFrames * pVideo_->getFrameDeltaTime(), 0.0);
+
+            videoFramePos_ += passedFrames;
+
+            if(ImGui::Button("Pause", ImVec2(50, 0)) || videoFramePos_ >= lastFrameId)
+            {
+                videoDeltaRemainder_ = -1.0f;
+            }
+        }
+
+        AVFrame* pFrame = pVideo_->getFrame(videoFramePos_);
 
         if(pFrame)
             pImageComposer_->drawVideoFrameRGB(pFrame);
