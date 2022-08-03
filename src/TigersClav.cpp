@@ -13,7 +13,6 @@
 
 TigersClav::TigersClav()
 :lastFileOpenPath_("."),
- drawVideoFrame_(false),
  gameLogRefPos_(0),
  gameLogRefPosHovered_(false),
  tPlayGamelog_ns_(-1),
@@ -122,6 +121,8 @@ void TigersClav::render()
             else if(type == 1)
             {
                 pVideo_ = std::make_unique<Video>(ImGuiFileDialog::Instance()->GetFilePathName());
+                videoFramePos_ = 0;
+                videoDeltaRemainder_ = -1;
             }
         }
 
@@ -134,6 +135,15 @@ void TigersClav::render()
 
     // Gamelog Panel
     ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+    drawGameLogPanel();
+
+    // Video Panel
+    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+    drawVideoPanel();
+}
+
+void TigersClav::drawGameLogPanel()
+{
     ImGui::Begin("Gamelog");
 
     ImVec2 regionAvail = ImGui::GetContentRegionAvail();
@@ -141,10 +151,23 @@ void TigersClav::render()
     const float aspectRatioScoreBoard = (float)pScoreBoard_->getImageData().size.h / pScoreBoard_->getImageData().size.w;
     const float aspectRatioField = (float)pFieldVisualizer_->getImageData().size.h / pFieldVisualizer_->getImageData().size.w;
 
+    ImVec2 scoreBoardSize(regionAvail.x, regionAvail.x*aspectRatioScoreBoard);
+    ImVec2 fieldSize(regionAvail.x, regionAvail.x*aspectRatioField);
+
+    if(scoreBoardSize.y + fieldSize.y > regionAvail.y*0.8f)
+    {
+        float scale = regionAvail.y*0.8f / (scoreBoardSize.y + fieldSize.y);
+
+        scoreBoardSize.x *= scale;
+        scoreBoardSize.y *= scale;
+        fieldSize.x *= scale;
+        fieldSize.y *= scale;
+    }
+
     createGamestateTextures();
 
-    ImGui::Image((void*)(intptr_t)scoreBoardTexture_, ImVec2(regionAvail.x, regionAvail.x*aspectRatioScoreBoard));
-    ImGui::Image((void*)(intptr_t)fieldVisualizerTexture_, ImVec2(regionAvail.x, regionAvail.x*aspectRatioField));
+    ImGui::Image((void*)(intptr_t)scoreBoardTexture_, scoreBoardSize);
+    ImGui::Image((void*)(intptr_t)fieldVisualizerTexture_, fieldSize);
 
     if(pGameLog_)
     {
@@ -284,7 +307,7 @@ void TigersClav::render()
             }
         }
 
-        if(ImGui::CollapsingHeader("Gamelog Details", ImGuiTreeNodeFlags_DefaultOpen))
+        if(ImGui::CollapsingHeader("Gamelog Details", ImGuiTreeNodeFlags_None))
         {
             SSLGameLogStats stats = pGameLog_->getStats();
 
@@ -302,16 +325,31 @@ void TigersClav::render()
     }
 
     ImGui::End();
+}
 
-    // Video Panel
-    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+void TigersClav::drawVideoPanel()
+{
     ImGui::Begin("Video");
 
-    ImGui::Checkbox("Draw videoframe", &drawVideoFrame_);
+    ImVec2 regionAvail = ImGui::GetContentRegionAvail();
+
+    const float aspectRatioVideo = pImageComposer_->getRenderSize().y / pImageComposer_->getRenderSize().x;
+
+    ImVec2 videoSize(regionAvail.x, regionAvail.x*aspectRatioVideo);
+
+    if(videoSize.y > regionAvail.y*0.8f)
+    {
+        float scale = regionAvail.y*0.8f / videoSize.y;
+
+        videoSize.x *= scale;
+        videoSize.y *= scale;
+    }
+
+    ImGui::Image((void*)(intptr_t)pImageComposer_->getTexture(), videoSize);
 
     pImageComposer_->begin();
 
-    if(pVideo_ && pVideo_->isLoaded() && drawVideoFrame_)
+    if(pVideo_ && pVideo_->isLoaded())
     {
         // Slider
         int64_t lastFrameId = pVideo_->getLastFrameId();
@@ -376,39 +414,7 @@ void TigersClav::render()
 
     pImageComposer_->end();
 
-    ImGui::Image((void*)(intptr_t)pImageComposer_->getTexture(), ImVec2(3840/4, 2160/4));
-
     ImGui::End();
-
-    // Drawing and interaction tests
-/*    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-    ImVec2 orig = ImGui::GetCursorScreenPos();
-    orig.x += 50;
-    ImGui::SetCursorScreenPos(orig);
-
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-    float x = p.x + 4.0f;
-    float y = p.y + 4.0f;
-    float sz = 36.0f;
-    ImVec4 colf = ImVec4(1.0f, 1.0f, 0.4f, 1.0f);
-    const ImU32 col = ImColor(colf);
-    float th = 1.0f;
-
-    static float offset = 0.0f;
-
-    // draw calls do not affect cursor pos
-    draw_list->AddRectFilled(ImVec2(x, y), ImVec2(x + ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x, y + sz), col);
-    draw_list->AddRect(ImVec2(x+offset, y), ImVec2(x + offset + sz, y + sz), ImColor(1.0f, 0.0f, 0.0f, 1.0f), 0.0f, ImDrawFlags_None, th);
-
-    // button starts at cursor pos
-    ImGui::InvisibleButton("canvas", ImGui::GetContentRegionAvail());
-    if (ImGui::IsItemActive())
-    {
-        draw_list->AddLine(ImGui::GetIO().MouseClickedPos[0], ImGui::GetIO().MousePos, ImGui::GetColorU32(ImGuiCol_Button), 4.0f); // Draw a line between the button and the mouse cursor
-        offset += ImGui::GetIO().MouseDelta.x;
-    }
-*/
 }
 
 void TigersClav::createGamestateTextures()

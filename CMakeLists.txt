@@ -57,6 +57,7 @@ add_executable(${PROJECT_NAME}
     src/ImageComposer.cpp
     src/ScoreBoard.cpp
     src/FieldVisualizer.cpp
+    src/Project.cpp
     
     src/util/gzstream.cpp
     src/util/easylogging++.cc

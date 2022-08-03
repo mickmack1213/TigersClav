@@ -21,6 +21,8 @@ public:
 
 private:
     void createGamestateTextures();
+    void drawGameLogPanel();
+    void drawVideoPanel();
 
     std::unique_ptr<SSLGameLog> pGameLog_;
     std::unique_ptr<Video> pVideo_;
@@ -45,6 +47,4 @@ private:
 
     GLuint scoreBoardTexture_;
     GLuint fieldVisualizerTexture_;
-
-    bool drawVideoFrame_;
 };
