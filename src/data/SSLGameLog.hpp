@@ -74,7 +74,7 @@ public:
     MsgMapIter findLastMsgBeforeTimestamp(SSLMessageType type, int64_t timestamp) const;
 
     template<typename ProtoType>
-    std::shared_ptr<ProtoType> convertTo(MsgMapIter& iter);
+    std::shared_ptr<ProtoType> convertTo(const MsgMapIter& iter);
 
 private:
     void loader(std::string filename, std::set<SSLMessageType> loadMsgTypes);
@@ -106,7 +106,7 @@ private:
 };
 
 template<typename ProtoType>
-std::shared_ptr<ProtoType> SSLGameLog::convertTo(SSLGameLog::MsgMapIter& iter)
+std::shared_ptr<ProtoType> SSLGameLog::convertTo(const SSLGameLog::MsgMapIter& iter)
 {
     std::shared_ptr<ProtoType> pProtoMsg = std::make_shared<ProtoType>();
 

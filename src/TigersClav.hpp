@@ -5,12 +5,12 @@
 
 #include <GL/gl.h>
 
-#include "SSLGameLog.hpp"
-#include "Video.hpp"
+#include "data/SSLGameLog.hpp"
+#include "data/Video.hpp"
 #include "util/ShaderProgram.hpp"
-#include "ImageComposer.hpp"
-#include "ScoreBoard.hpp"
-#include "FieldVisualizer.hpp"
+#include "gui/ImageComposer.hpp"
+#include "gui/ScoreBoard.hpp"
+#include "gui/FieldVisualizer.hpp"
 
 class TigersClav : public Application
 {

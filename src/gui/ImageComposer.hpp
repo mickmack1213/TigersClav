@@ -1,8 +1,8 @@
 #pragma once
 
 #include "util/ShaderProgram.hpp"
+#include "data/Video.hpp"
 #include "imgui.h"
-#include "Video.hpp"
 #include <memory>
 
 // Basically a render to texture framebuffer implementation

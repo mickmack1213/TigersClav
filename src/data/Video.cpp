@@ -307,23 +307,29 @@ void Video::preloader()
             // requested frame is no where near to being cached, we need to seek
             av_seek_frame(pFormatContext_, pVideoStream_->index, requestedPts - cacheSize_/2*videoPtsIncrement_, AVSEEK_FLAG_BACKWARD);
 
-            // drop one packet
-            readNextFrame();
-
-            int prerolledFrames = 0;
-
             std::shared_ptr<AVFrameWrapper> pWrapper = nullptr;
             std::map<int64_t, std::shared_ptr<AVFrameWrapper>> newCache;
+            int prerolledFrames = 0;
 
-            do
+            // is the next packet the one we want?
+            pWrapper = readNextFrame();
+            if(!pWrapper || pWrapper->pFrame->pts != requestedPts)
             {
-                pWrapper = readNextFrame();
-                prerolledFrames++;
+                do
+                {
+                    pWrapper = readNextFrame();
+                    prerolledFrames++;
 
-                if(pWrapper)
-                    newCache[pWrapper->pFrame->pts] = pWrapper;
+                    if(pWrapper)
+                        newCache[pWrapper->pFrame->pts] = pWrapper;
+                }
+                while(pWrapper != nullptr && pWrapper->pFrame->pts < requestedPts);
             }
-            while(pWrapper != nullptr && pWrapper->pFrame->pts < requestedPts);
+            else
+            {
+                newCache[pWrapper->pFrame->pts] = pWrapper;
+                prerolledFrames++;
+            }
 
             int remainingFrames = cacheSize_ - prerolledFrames;
             if(remainingFrames < 1)

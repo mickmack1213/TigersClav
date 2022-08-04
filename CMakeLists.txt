@@ -37,6 +37,7 @@ include_directories(
     imgui
     imgui/backends
     ImGuiFileDialog
+    src
     src/util
     
     ${Protobuf_INCLUDE_DIRS}
@@ -51,22 +52,26 @@ add_executable(${PROJECT_NAME}
     src/main.cpp
     src/Application.cpp
     src/TigersClav.cpp
-    src/SSLGameLog.cpp
     src/LogViewer.cpp
-    src/Video.cpp
-    src/ImageComposer.cpp
-    src/ScoreBoard.cpp
-    src/FieldVisualizer.cpp
-    src/Project.cpp
+    
+    src/data/SSLGameLog.cpp
+    src/data/Video.cpp
+    
+    src/gui/ImageComposer.cpp
+    src/gui/ScoreBoard.cpp
+    src/gui/FieldVisualizer.cpp
+    
+    src/model/Project.cpp
+    src/model/Camera.cpp
+    src/model/GameLog.cpp
     
     src/util/gzstream.cpp
     src/util/easylogging++.cc
-    
-    ImGuiFileDialog/ImGuiFileDialog.cpp
     src/util/CustomFont.cpp
-    
     src/util/gl3w.c
     src/util/ShaderProgram.cpp
+    
+    ImGuiFileDialog/ImGuiFileDialog.cpp
     
     imgui/imgui.cpp
     imgui/imgui_draw.cpp
