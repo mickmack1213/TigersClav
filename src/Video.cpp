@@ -89,6 +89,16 @@ Video::Video(std::string filename)
 
     LOG(INFO) << "PTS inc: " << videoPtsIncrement_ << ", last frame: " << pVideoStream_->duration / videoPtsIncrement_;
 
+    int dictEntries = av_dict_count(pVideoStream_->metadata);
+
+    LOG(INFO) << "Dict entries: " << dictEntries;
+
+    AVDictionaryEntry *pDictEntry = NULL;
+    while((pDictEntry = av_dict_get(pVideoStream_->metadata, "", pDictEntry, AV_DICT_IGNORE_SUFFIX)) != 0)
+    {
+        LOG(INFO) << "    " << pDictEntry->key << " = " << pDictEntry->value;
+    }
+
 /*    const AVCodecHWConfig* pVideoHWConfig = 0;
 
     int index = 0;
