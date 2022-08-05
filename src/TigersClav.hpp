@@ -1,16 +1,12 @@
 #pragma once
 
 #include "Application.hpp"
-#include "blend2d.h"
 
-#include <GL/gl.h>
-
-#include "data/SSLGameLog.hpp"
-#include "data/Video.hpp"
-#include "util/ShaderProgram.hpp"
+#include "model/Project.hpp"
 #include "gui/ImageComposer.hpp"
 #include "gui/ScoreBoard.hpp"
 #include "gui/FieldVisualizer.hpp"
+#include "util/ShaderProgram.hpp"
 
 class TigersClav : public Application
 {
@@ -23,27 +19,23 @@ private:
     void createGamestateTextures();
     void drawGameLogPanel();
     void drawVideoPanel();
+    void drawProjectPanel();
 
-    std::unique_ptr<SSLGameLog> pGameLog_;
-    std::unique_ptr<Video> pVideo_;
+    std::unique_ptr<Project> pProject_;
     std::unique_ptr<ImageComposer> pImageComposer_;
     std::unique_ptr<ScoreBoard> pScoreBoard_;
     std::unique_ptr<FieldVisualizer> pFieldVisualizer_;
 
     std::string lastFileOpenPath_;
 
-    int gameLogRefPos_;
-    bool gameLogRefPosHovered_;
+    float gameLogTime_s_;
+    bool gameLogAutoPlay_;
+    bool gameLogSliderHovered_;
 
-    std::map<std::string, std::string> trackerSources_;
-    std::string preferredTracker_;
-
-    int64_t tPlayGamelog_ns_;
-
-    int videoFramePos_;
-    float videoDeltaRemainder_;
-    bool videoFramePosHovered_;
-
+    int cameraIndex_;
+    float cameraTime_s_;
+    bool cameraAutoPlay_;
+    bool cameraSliderHovered_;
 
     GLuint scoreBoardTexture_;
     GLuint fieldVisualizerTexture_;

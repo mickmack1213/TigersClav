@@ -22,6 +22,7 @@ enum AVPixelFormat Video::internalGetHwFormat(AVCodecContext *ctx, const enum AV
 
 Video::Video(std::string filename)
 :isLoaded_(false),
+ filename_(filename),
  pFormatContext_(0),
  pVideoCodec_(0),
  pVideoStream_(0),
@@ -81,7 +82,7 @@ Video::Video(std::string filename)
     frameDeltaTime_s_ = 1.0f/frameRate;
 
     LOG(INFO) << "Codec: " << pVideoCodec_->name << ", bitrate: " << pVideoCodecPars->bit_rate;
-    LOG(INFO) << "Duration: " << std::setprecision(6) << duration_s << ", startTime: " << pVideoStream_->start_time << "pts";
+    LOG(INFO) << "Duration: " << std::setprecision(6) << duration_s << " (" << pVideoStream_->duration << "), startTime: " << pVideoStream_->start_time << "pts";
     LOG(INFO) << "Time base: " << pVideoStream_->time_base.num << "/" << pVideoStream_->time_base.den << ", framerate: " << pVideoStream_->r_frame_rate.num << "/" << pVideoStream_->r_frame_rate.den;
     LOG(INFO) << "Video resolution: " << pVideoCodecPars->width << "x" << pVideoCodecPars->height << " @ " << std::setprecision(4) << frameRate << "fps";
 
@@ -249,12 +250,68 @@ Video::~Video()
         av_buffer_unref(&pHwDeviceContext_);
 }
 
+std::list<std::string> Video::getFileDetails() const
+{
+    std::list<std::string> details;
+
+    if(!isLoaded_)
+        return details;
+
+    std::stringstream ss;
+
+    float frameRate = (float)pVideoStream_->r_frame_rate.num / pVideoStream_->r_frame_rate.den;
+    float duration_s = (float)pVideoStream_->duration * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
+
+    ss << "Duration: " << std::setprecision(6) << duration_s << "s";
+    details.push_back(ss.str());
+    ss.str("");
+    ss.clear();
+
+    ss << "Video resolution: " << pVideoStream_->codecpar->width << "x" << pVideoStream_->codecpar->height << " @ " << std::fixed << std::setprecision(2) << frameRate << "fps";
+    details.push_back(ss.str());
+    ss.str("");
+    ss.clear();
+
+    ss << "Video Codec: " << pVideoCodec_->name << ", bitrate: " << std::fixed << std::setprecision(2) << pVideoStream_->codecpar->bit_rate * 1e-6 << "MBit/s";
+    details.push_back(ss.str());
+    ss.str("");
+    ss.clear();
+
+    return details;
+}
+
 int32_t Video::getLastFrameId() const
 {
     if(!isLoaded_)
         return 0;
 
     return pVideoStream_->duration / videoPtsIncrement_ - 1;
+}
+
+int64_t Video::getDuration_ns() const
+{
+    if(!isLoaded_)
+        return 0;
+
+    return (pVideoStream_->duration * 1000000000LL * pVideoStream_->time_base.num) / pVideoStream_->time_base.den;
+}
+
+AVFrame* Video::getFrameByTime(int64_t timestamp_ns)
+{
+    if(!isLoaded_)
+        return 0;
+
+    if(timestamp_ns < 0 || timestamp_ns >= getDuration_ns())
+        return 0;
+
+    const int64_t num = pVideoStream_->r_frame_rate.num;
+    const int64_t den = pVideoStream_->r_frame_rate.den;
+
+    timestamp_ns += (den*500000000LL)/num;
+
+    int64_t frameId = (timestamp_ns * num) / (den * 1000000000LL);
+
+    return getFrame(frameId);
 }
 
 AVFrame* Video::getFrame(int64_t frameId)

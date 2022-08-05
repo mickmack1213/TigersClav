@@ -12,14 +12,14 @@ public:
     FieldVisualizer();
 
     bool hasGeometry() const { return (bool)pGeometryPacket_; }
-    void setGeometry(std::shared_ptr<SSL_WrapperPacket> pVision);
+    void setGeometry(std::shared_ptr<const SSL_GeometryData> pVision);
 
     void update(std::shared_ptr<TrackerWrapperPacket> pTracker);
 
     BLImageData getImageData();
 
 private:
-    std::shared_ptr<SSL_WrapperPacket> pGeometryPacket_;
+    std::shared_ptr<const SSL_GeometryData> pGeometryPacket_;
 
     BLFontFace regularFontFace_;
     BLFontFace boldFontFace_;

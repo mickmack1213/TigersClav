@@ -19,6 +19,13 @@ SSLGameLog::SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTyp
 {
     memoryPools_.emplace_back(std::vector<uint8_t>(MEM_POOL_CHUNK_SIZE));
 
+    // prepare statistics
+    for(auto msgType : RECORDED_MESSAGES)
+    {
+        stats_.numMessagesPerType[msgType] = 0;
+        messagesByType_[msgType] = MsgMap();
+    }
+
     loaderThread_ = std::thread(SSLGameLog::loader, this, filename, loadMsgTypes);
 }
 
@@ -48,13 +55,6 @@ bool SSLGameLog::isValid() const
 
 void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTypes)
 {
-    // prepare statistics
-    for(auto msgType : RECORDED_MESSAGES)
-    {
-        stats_.numMessagesPerType[msgType] = 0;
-        messagesByType_[msgType] = MsgMap();
-    }
-
     LOG(TRACE) << "Trying to load gamelog: " << filename;
 
     // Open logfile directly or through gzip stream

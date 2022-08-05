@@ -6,10 +6,12 @@
 class Project
 {
 public:
-    int64_t getTotalDuration();
+    int64_t getTotalDuration() const;
 
-    std::shared_ptr<GameLog> getGameLog();
-    std::vector<std::shared_ptr<Camera>>& getCameras();
+    void openGameLog(std::string filename);
+
+    std::shared_ptr<GameLog> getGameLog() { return pGameLog_; }
+    std::vector<std::shared_ptr<Camera>>& getCameras() { return pCameras_; }
 
 private:
     std::shared_ptr<GameLog> pGameLog_;

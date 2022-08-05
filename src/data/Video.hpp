@@ -25,6 +25,13 @@ public:
     int32_t getLastFrameId() const;
     float getFrameDeltaTime() const { return frameDeltaTime_s_; }
 
+    int64_t getDuration_ns() const;
+    AVFrame* getFrameByTime(int64_t timestamp_ns);
+
+    std::string getFilename() const { return filename_; }
+
+    std::list<std::string> getFileDetails() const;
+
     enum AVPixelFormat internalGetHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts);
 
 private:
@@ -67,7 +74,7 @@ private:
     float frameDeltaTime_s_;
 
     bool isLoaded_;
-
+    std::string filename_;
 
     AVFormatContext* pFormatContext_;
     AVCodec* pVideoCodec_;

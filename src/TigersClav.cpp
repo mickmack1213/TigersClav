@@ -1,24 +1,16 @@
 #include "TigersClav.hpp"
-#include <cstdio>
-#include <cstdint>
-#include <stdexcept>
-#include <fstream>
-#include <memory>
-#include "util/gzstream.h"
 #include "ImGuiFileDialog.h"
-#include "util/CustomFont.h"
 #include "LogViewer.hpp"
-#include <chrono>
-#include <iomanip>
 
 TigersClav::TigersClav()
 :lastFileOpenPath_("."),
- gameLogRefPos_(0),
- gameLogRefPosHovered_(false),
- tPlayGamelog_ns_(-1),
- videoFramePos_(0),
- videoFramePosHovered_(false),
- videoDeltaRemainder_(-1.0f)
+ gameLogTime_s_(0.0f),
+ gameLogAutoPlay_(false),
+ gameLogSliderHovered_(false),
+ cameraTime_s_(0.0f),
+ cameraAutoPlay_(false),
+ cameraSliderHovered_(false),
+ cameraIndex_(-1)
 {
     glGenTextures(1, &scoreBoardTexture_);
     glGenTextures(1, &fieldVisualizerTexture_);
@@ -27,6 +19,9 @@ TigersClav::TigersClav()
     pFieldVisualizer_ = std::make_unique<FieldVisualizer>();
     pImageComposer_ = std::make_unique<ImageComposer>(ImVec2(3840, 2160));
 
+    pProject_ = std::make_unique<Project>();
+
+    // TODO: move this to project
     std::ifstream openPath("lastFileOpenPath.txt");
     if(openPath)
     {
@@ -67,26 +62,20 @@ void TigersClav::render()
     // Draw main menu
     if(ImGui::BeginMenuBar())
     {
-        if(ImGui::BeginMenu("File"))
+        if(ImGui::BeginMenu("Project"))
         {
-            if(ImGui::MenuItem("Load Gamelog", "CTRL+O"))
+            // TODO: implement project save/load
+            if(ImGui::MenuItem("Open...", "CTRL+O"))
             {
-                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, 0, ImGuiFileDialogFlags_Modal);
             }
 
-            if(ImGui::MenuItem("Load Video"))
+            if(ImGui::MenuItem("Save"), "CTRL+S")
             {
-                ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".*", lastFileOpenPath_, 1, (void*)1, ImGuiFileDialogFlags_Modal);
             }
 
-            ImGui::EndMenu();
-        }
-
-        if(ImGui::BeginMenu("Edit"))
-        {
-            if (ImGui::MenuItem("Undo", "CTRL+Z")) {}
-            if (ImGui::MenuItem("Redo", "CTRL+Y", false, false)) {}  // Disabled item
-            ImGui::Separator();
+            if(ImGui::MenuItem("Save As..."))
+            {
+            }
 
             ImGui::EndMenu();
         }
@@ -95,40 +84,6 @@ void TigersClav::render()
     }
 
     ImGui::End();
-
-    // File Dialog handling
-    if(ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
-    {
-        // action if OK
-        if(ImGuiFileDialog::Instance()->IsOk())
-        {
-            lastFileOpenPath_ = ImGuiFileDialog::Instance()->GetCurrentPath() + "/";
-
-            std::ofstream openPath("lastFileOpenPath.txt", std::ofstream::trunc);
-            openPath << lastFileOpenPath_;
-            openPath.close();
-
-            uint64_t type = (uint64_t)ImGuiFileDialog::Instance()->GetUserDatas();
-
-            if(type == 0)
-            {
-                pGameLog_ = std::make_unique<SSLGameLog>(ImGuiFileDialog::Instance()->GetFilePathName(),
-                                std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020, MESSAGE_SSL_VISION_2014 });
-                gameLogRefPos_ = 0;
-                pFieldVisualizer_->setGeometry(nullptr);
-                trackerSources_.clear();
-            }
-            else if(type == 1)
-            {
-                pVideo_ = std::make_unique<Video>(ImGuiFileDialog::Instance()->GetFilePathName());
-                videoFramePos_ = 0;
-                videoDeltaRemainder_ = -1;
-            }
-        }
-
-        // close
-        ImGuiFileDialog::Instance()->Close();
-    }
 
     // Log Panel
     el::Helpers::logDispatchCallback<LogViewer>("LogViewer")->render();
@@ -140,6 +95,203 @@ void TigersClav::render()
     // Video Panel
     ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
     drawVideoPanel();
+
+    // Project Panel
+    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+    drawProjectPanel();
+}
+
+void TigersClav::drawProjectPanel()
+{
+    ImGui::Begin("Project");
+
+    if(ImGui::TreeNodeEx("Gamelog", ImGuiTreeNodeFlags_FramePadding))
+    {
+        if(pProject_->getGameLog())
+        {
+            for(const auto& detail : pProject_->getGameLog()->getFileDetails())
+            {
+                ImGui::BulletText(detail.c_str());
+            }
+        }
+
+        if(ImGui::Button("Load Gamelog", ImVec2(100.0f, 0.0f)))
+        {
+            ImGuiFileDialog::Instance()->OpenDialog("LoadGamelogDialog", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, 0, ImGuiFileDialogFlags_Modal);
+        }
+
+        if(ImGuiFileDialog::Instance()->Display("LoadGamelogDialog", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
+        {
+            if(ImGuiFileDialog::Instance()->IsOk())
+            {
+                lastFileOpenPath_ = ImGuiFileDialog::Instance()->GetCurrentPath() + "/";
+
+                std::ofstream openPath("lastFileOpenPath.txt", std::ofstream::trunc);
+                openPath << lastFileOpenPath_;
+                openPath.close();
+
+                pProject_->openGameLog(ImGuiFileDialog::Instance()->GetFilePathName());
+
+                gameLogTime_s_ = 0.0f;
+                gameLogAutoPlay_ = false;
+            }
+
+            ImGuiFileDialog::Instance()->Close();
+        }
+
+        ImGui::TreePop();
+    }
+
+    if(ImGui::TreeNodeEx("Cameras", ImGuiTreeNodeFlags_FramePadding))
+    {
+        std::vector<std::shared_ptr<Camera>>::iterator removeIter = pProject_->getCameras().end();
+
+        for(const auto& pCam : pProject_->getCameras())
+        {
+            if(ImGui::TreeNodeEx(pCam->getName().c_str(), ImGuiTreeNodeFlags_FramePadding))
+            {
+                if(pCam->getTotalDuration_ns() > 0)
+                {
+                    ImGui::BulletText("Duration: %.3fs", pCam->getTotalDuration_ns()*1e-9);
+                }
+
+                // show videos
+                std::list<std::shared_ptr<VideoRecording>>::iterator removeVideoIter = pCam->getVideos().end();
+
+                for(const auto& pVideo : pCam->getVideos())
+                {
+                    if(ImGui::TreeNode(pVideo->getName().c_str()))
+                    {
+                        for(const auto& detail : pVideo->pVideo_->getFileDetails())
+                            ImGui::BulletText(detail.c_str());
+
+                        if(ImGui::Button("Delete Video", ImVec2(200.0f, 0.0f)))
+                        {
+                            removeVideoIter = std::find(pCam->getVideos().begin(), pCam->getVideos().end(), pVideo);
+                        }
+
+                        ImGui::TreePop();
+                    }
+                }
+
+                if(removeVideoIter != pCam->getVideos().end())
+                    pCam->getVideos().erase(removeVideoIter);
+
+                // Add video logic
+                if(ImGui::Button("Add Video", ImVec2(200.0f, 0.0f)))
+                {
+                    ImGuiFileDialog::Instance()->OpenDialog("AddVideoDialog", "Choose File", ".*", lastFileOpenPath_, 1, (void*)pCam.get(), ImGuiFileDialogFlags_Modal);
+                }
+
+                if(ImGuiFileDialog::Instance()->Display("AddVideoDialog", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
+                {
+                    if(ImGuiFileDialog::Instance()->IsOk())
+                    {
+                        lastFileOpenPath_ = ImGuiFileDialog::Instance()->GetCurrentPath() + "/";
+
+                        std::ofstream openPath("lastFileOpenPath.txt", std::ofstream::trunc);
+                        openPath << lastFileOpenPath_;
+                        openPath.close();
+
+                        Camera* pCamAdd = reinterpret_cast<Camera*>(ImGuiFileDialog::Instance()->GetUserDatas());
+
+                        pCamAdd->addVideo(ImGuiFileDialog::Instance()->GetFilePathName());
+                    }
+
+                    ImGuiFileDialog::Instance()->Close();
+                }
+
+                // Delete camera logic
+                if(ImGui::Button("Delete Camera", ImVec2(200.0f, 0.0f)))
+                    ImGui::OpenPopup("Confirm Camera Deletion");
+
+                ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+                ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+                if(ImGui::BeginPopupModal("Confirm Camera Deletion", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::Text("This will delete the camera and all associated videos.");
+                    ImGui::Text("Are you sure?");
+
+                    if(ImGui::Button("Yes", ImVec2(120, 0)))
+                    {
+                        ImGui::CloseCurrentPopup();
+
+                        removeIter = std::find(pProject_->getCameras().begin(), pProject_->getCameras().end(), pCam);
+                    }
+
+                    ImGui::SetItemDefaultFocus();
+                    ImGui::SameLine();
+                    if(ImGui::Button("Cancel", ImVec2(120, 0)))
+                    {
+                        ImGui::CloseCurrentPopup();
+                    }
+
+                    ImGui::EndPopup();
+                }
+
+                ImGui::TreePop();
+            }
+        }
+
+        if(removeIter != pProject_->getCameras().end())
+        {
+            pProject_->getCameras().erase(removeIter);
+        }
+
+        // Add camera logic
+        if(ImGui::Button("Add Camera", ImVec2(100.0f, 0.0f)))
+            ImGui::OpenPopup("Camera Name");
+
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if(ImGui::BeginPopupModal("Camera Name", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            static char camNameBuf[128];
+
+            ImGui::InputText("##Camera_name", camNameBuf, sizeof(camNameBuf));
+
+            auto existsIter = std::find_if(pProject_->getCameras().begin(), pProject_->getCameras().end(), [&](auto pCam){ return pCam->getName() == std::string(camNameBuf); });
+            const bool invalidName = existsIter != pProject_->getCameras().end() || std::string(camNameBuf).empty();
+
+            if(invalidName)
+            {
+                if(existsIter != pProject_->getCameras().end())
+                    ImGui::Text("This camera name already exists!");
+
+                ImGui::BeginDisabled();
+            }
+
+            if(ImGui::Button("Create", ImVec2(120, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+
+                auto pCamera = std::make_shared<Camera>(std::string(camNameBuf));
+                pProject_->getCameras().push_back(pCamera);
+
+                camNameBuf[0] = 0;
+            }
+
+            if(invalidName)
+            {
+                ImGui::EndDisabled();
+            }
+
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine();
+            if(ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::TreePop();
+    }
+
+    ImGui::End();
 }
 
 void TigersClav::drawGameLogPanel()
@@ -169,158 +321,93 @@ void TigersClav::drawGameLogPanel()
     ImGui::Image((void*)(intptr_t)scoreBoardTexture_, scoreBoardSize);
     ImGui::Image((void*)(intptr_t)fieldVisualizerTexture_, fieldSize);
 
-    if(pGameLog_)
+    if(pProject_->getGameLog() && pProject_->getGameLog()->isLoaded())
     {
-        if(pGameLog_->isLoaded() && !pGameLog_->isEmpty(MESSAGE_SSL_REFBOX_2013))
+        std::shared_ptr<GameLog> pGameLog = pProject_->getGameLog();
+
+        pFieldVisualizer_->setGeometry(pGameLog->getGeometry());
+
+        float tMax_s = pGameLog->getTotalDuration_ns() * 1e-9f;
+
+        float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+        ImGui::PushButtonRepeat(true);
+        if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (gameLogSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
         {
-            // Logic
-            if(!pFieldVisualizer_->hasGeometry())
+            pGameLog->seekToPrevious();
+            auto optEntry = pGameLog->get();
+            if(optEntry)
             {
-                auto visionIter = pGameLog_->begin(MESSAGE_SSL_VISION_2014);
-                while(visionIter != pGameLog_->end(MESSAGE_SSL_VISION_2014))
-                {
-                    auto optVision = pGameLog_->convertTo<SSL_WrapperPacket>(visionIter);
-                    if(optVision && optVision->has_geometry())
-                    {
-                        LOG(INFO) << "Found Geometry Frame. "
-                                  << optVision->geometry().field().field_length() << "x" << optVision->geometry().field().field_width();
-
-                        pFieldVisualizer_->setGeometry(optVision);
-                        break;
-                    }
-
-                    visionIter++;
-                }
+                gameLogTime_s_ = optEntry->timestamp_ns_ * 1e-9;
             }
 
-            // Data info and stats
-            SSLGameLog::MsgMapIter refIter;
+            gameLogAutoPlay_ = false;
+        }
 
-            if(tPlayGamelog_ns_ > 0)
+        ImGui::SameLine(0.0f, spacing);
+        ImGui::SetNextItemWidth(-78.0f);
+        ImGui::SliderFloat("##GameLogTime", &gameLogTime_s_, 0.0f, tMax_s, "%.3fs", ImGuiSliderFlags_AlwaysClamp);
+        gameLogSliderHovered_ = ImGui::IsItemHovered();
+        if(ImGui::IsItemEdited())
+        {
+            pGameLog->seekTo(gameLogTime_s_ * 1e9);
+            gameLogAutoPlay_ = false;
+        }
+
+        ImGui::SameLine(0.0f, spacing);
+        if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (gameLogSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
+        {
+            pGameLog->seekToNext();
+            auto optEntry = pGameLog->get();
+            if(optEntry)
             {
-                refIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_REFBOX_2013, tPlayGamelog_ns_);
-                gameLogRefPos_ = std::distance(pGameLog_->begin(MESSAGE_SSL_REFBOX_2013), refIter);
-            }
-            else
-            {
-                refIter = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013);
-                std::advance(refIter, gameLogRefPos_);
-            }
-            auto optRef = pGameLog_->convertTo<Referee>(refIter);
-
-            auto trackerIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_VISION_TRACKER_2020, refIter->first);
-            auto optTracker = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
-
-            if(optTracker)
-            {
-                trackerSources_[optTracker->uuid()] = optTracker->has_source_name() ? optTracker->source_name() : "Unknown";
-
-                while(trackerIter != pGameLog_->end(MESSAGE_SSL_VISION_TRACKER_2020) && !preferredTracker_.empty() && optTracker->uuid() != preferredTracker_)
-                {
-                    optTracker = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
-
-                    trackerIter++;
-                }
-
-                pFieldVisualizer_->update(optTracker);
+                gameLogTime_s_ = optEntry->timestamp_ns_ * 1e-9;
             }
 
-            if(optRef)
+            gameLogAutoPlay_ = false;
+        }
+
+        ImGui::PopButtonRepeat();
+
+        ImGui::SameLine(0.0f, spacing);
+
+        if(gameLogAutoPlay_)
+        {
+            gameLogTime_s_ += ImGui::GetIO().DeltaTime;
+            pGameLog->seekTo(gameLogTime_s_ * 1e9);
+
+            if(ImGui::Button("Pause", ImVec2(50, 0)) || gameLogTime_s_*1e9 > pGameLog->getTotalDuration_ns())
             {
-                pScoreBoard_->update(optRef);
+                gameLogAutoPlay_ = false;
             }
-
-            // Slider
-            size_t numRefMessages = pGameLog_->getNumMessages(MESSAGE_SSL_REFBOX_2013);
-
-            float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-            ImGui::PushButtonRepeat(true);
-            if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (gameLogRefPosHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
+        }
+        else
+        {
+            if(ImGui::Button("Play", ImVec2(50, 0)))
             {
-                if(gameLogRefPos_ > 0)
-                    gameLogRefPos_--;
-
-                tPlayGamelog_ns_ = -1;
-            }
-
-            ImGui::SameLine(0.0f, spacing);
-            ImGui::SetNextItemWidth(-78.0f);
-            ImGui::SliderInt("##Ref Message Pos", &gameLogRefPos_, 0, numRefMessages-1, "%d", ImGuiSliderFlags_AlwaysClamp);
-            gameLogRefPosHovered_ = ImGui::IsItemHovered();
-            if(ImGui::IsItemEdited())
-                tPlayGamelog_ns_ = -1;
-
-            ImGui::SameLine(0.0f, spacing);
-            if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (gameLogRefPosHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
-            {
-                if(gameLogRefPos_ < numRefMessages-1)
-                    gameLogRefPos_++;
-
-                tPlayGamelog_ns_ = -1;
-            }
-
-            ImGui::PopButtonRepeat();
-
-            ImGui::SameLine(0.0f, spacing);
-
-            if(tPlayGamelog_ns_ < 0)
-            {
-                if(ImGui::Button("Play", ImVec2(50, 0)))
-                {
-                    tPlayGamelog_ns_ = refIter->first;
-                }
-
-            }
-            else
-            {
-                tPlayGamelog_ns_ += (int64_t)((double)ImGui::GetIO().DeltaTime * 1e9);
-
-                if(ImGui::Button("Pause", ImVec2(50, 0)) || tPlayGamelog_ns_ > pGameLog_->getLastTimestamp_ns())
-                {
-                    tPlayGamelog_ns_ = -1;
-                }
-            }
-
-            // Tracker source selection
-            ImGui::AlignTextToFramePadding();
-            ImGui::Text("Tracker Source: ");
-            ImGui::SameLine();
-
-            for(const auto& source : trackerSources_)
-            {
-                if(ImGui::RadioButton(source.second.c_str(), source.first == preferredTracker_))
-                    preferredTracker_ = source.first;
-
-                ImGui::SameLine();
-            }
-
-            ImGui::NewLine();
-
-            if(optRef)
-            {
-                uint64_t timestamp_us = optRef->packet_timestamp();
-                int64_t unixTimestamp = timestamp_us / 1000000;
-                std::tm tm = *std::localtime(&unixTimestamp);
-                std::stringstream dateStream;
-                dateStream << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-                ImGui::Text("Time: %s.%03u", dateStream.str().c_str(), (timestamp_us / 1000) % 1000);
+                gameLogAutoPlay_ = true;
             }
         }
 
-        if(ImGui::CollapsingHeader("Gamelog Details", ImGuiTreeNodeFlags_None))
-        {
-            SSLGameLogStats stats = pGameLog_->getStats();
+        // Tracker source selection
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Tracker Source: ");
+        ImGui::SameLine();
 
-            ImGui::Text("Gamelog: %s", pGameLog_->getFilename().c_str());
-            ImGui::Text("Type: %s", stats.type.c_str());
-            ImGui::Text("Format: %d", stats.formatVersion);
-            ImGui::Text("Size: %.1fMB", stats.totalSize/(1024.0f*1024.0f));
-            ImGui::Text("msgs: %u", stats.numMessages);
-            ImGui::Text("vision2010: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2010]);
-            ImGui::Text("vision2014: %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_2014]);
-            ImGui::Text("ref:        %u", stats.numMessagesPerType[MESSAGE_SSL_REFBOX_2013]);
-            ImGui::Text("tracker:    %u", stats.numMessagesPerType[MESSAGE_SSL_VISION_TRACKER_2020]);
-            ImGui::Text("Duration: %.1fs", stats.duration_s);
+        for(const auto& source : pGameLog->getTrackerSources())
+        {
+            if(ImGui::RadioButton(source.second.c_str(), source.first == pGameLog->getPreferredTrackerSourceUUID()))
+                pGameLog->setPreferredTrackerSourceUUID(source.first);
+
+            ImGui::SameLine();
+        }
+
+        ImGui::NewLine();
+
+        std::optional<GameLog::Entry> entry = pGameLog->get();
+        if(entry)
+        {
+            pFieldVisualizer_->update(entry->pTracker_);
+            pScoreBoard_->update(entry->pReferee_);
         }
     }
 
@@ -349,65 +436,86 @@ void TigersClav::drawVideoPanel()
 
     pImageComposer_->begin();
 
-    if(pVideo_ && pVideo_->isLoaded())
+    if(!pProject_->getCameras().empty())
     {
-        // Slider
-        int64_t lastFrameId = pVideo_->getLastFrameId();
+        if(cameraIndex_ < 0)
+            cameraIndex_ = 0;
+
+        if(ImGui::BeginCombo("Camera", pProject_->getCameras().at(cameraIndex_)->getName().c_str()))
+        {
+            for(size_t i = 0; i < pProject_->getCameras().size(); i++)
+            {
+                bool isSelected = i == cameraIndex_;
+                if(ImGui::Selectable(pProject_->getCameras().at(i)->getName().c_str(), isSelected))
+                    cameraIndex_ = i;
+
+                if (isSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+    }
+
+    if(cameraIndex_ >= pProject_->getCameras().size())
+    {
+        cameraIndex_ = -1;
+    }
+
+    if(cameraIndex_ >= 0)
+    {
+        std::shared_ptr<Camera> pCamera = pProject_->getCameras().at(cameraIndex_);
+
+        float tMax_s = pCamera->getTotalDuration_ns() * 1e-9f;
+        float dt_s = pCamera->getFrameDeltaTime();
 
         float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
         ImGui::PushButtonRepeat(true);
-        if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (videoFramePosHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
+        if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (cameraSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
         {
-            if(videoFramePos_ > 0)
-                videoFramePos_--;
+            if(cameraTime_s_ > dt_s)
+                cameraTime_s_ -= dt_s;
 
-            videoDeltaRemainder_ = -1;
+            cameraAutoPlay_ = false;
         }
 
         ImGui::SameLine(0.0f, spacing);
         ImGui::SetNextItemWidth(-78.0f);
-        ImGui::SliderInt("##Video Message Pos", &videoFramePos_, 0, lastFrameId-1, "%d", ImGuiSliderFlags_AlwaysClamp);
-        videoFramePosHovered_ = ImGui::IsItemHovered();
+        ImGui::SliderFloat("##CameraTime", &cameraTime_s_, 0.0f, tMax_s, "%.3fs", ImGuiSliderFlags_AlwaysClamp);
+        cameraSliderHovered_ = ImGui::IsItemHovered();
         if(ImGui::IsItemEdited())
-            videoDeltaRemainder_ = -1;
+            cameraAutoPlay_ = false;
 
         ImGui::SameLine(0.0f, spacing);
-        if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (videoFramePosHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
+        if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (cameraSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
         {
-            if(videoFramePos_ < lastFrameId-1)
-                videoFramePos_++;
+            if(cameraTime_s_+dt_s < tMax_s)
+                cameraTime_s_ += dt_s;
 
-            videoDeltaRemainder_ = -1;
+            cameraAutoPlay_ = false;
         }
 
         ImGui::PopButtonRepeat();
 
         ImGui::SameLine(0.0f, spacing);
 
-        if(videoDeltaRemainder_ < 0)
+        if(cameraAutoPlay_)
         {
-            if(ImGui::Button("Play", ImVec2(50, 0)))
+            cameraTime_s_ += ImGui::GetIO().DeltaTime;
+
+            if(ImGui::Button("Pause", ImVec2(50, 0)) || cameraTime_s_ * 1e9 > pCamera->getTotalDuration_ns())
             {
-                videoDeltaRemainder_ = 0.0f;
+                cameraAutoPlay_ = false;
             }
         }
         else
         {
-            double passedTime = ImGui::GetIO().DeltaTime + videoDeltaRemainder_;
-            int passedFrames = (int)(passedTime / pVideo_->getFrameDeltaTime());
-
-            videoDeltaRemainder_ = std::max(passedTime - passedFrames * pVideo_->getFrameDeltaTime(), 0.0);
-
-            videoFramePos_ += passedFrames;
-
-            if(ImGui::Button("Pause", ImVec2(50, 0)) || videoFramePos_ >= lastFrameId)
+            if(ImGui::Button("Play", ImVec2(50, 0)))
             {
-                videoDeltaRemainder_ = -1.0f;
+                cameraAutoPlay_ = true;
             }
         }
 
-        AVFrame* pFrame = pVideo_->getFrame(videoFramePos_);
-
+        AVFrame* pFrame = pCamera->getAVFrame(cameraTime_s_ * 1e9);
         if(pFrame)
             pImageComposer_->drawVideoFrameRGB(pFrame);
     }

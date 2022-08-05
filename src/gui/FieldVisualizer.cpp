@@ -23,14 +23,14 @@ FieldVisualizer::FieldVisualizer()
     ctx_.end();
 }
 
-void FieldVisualizer::setGeometry(std::shared_ptr<SSL_WrapperPacket> pVision)
+void FieldVisualizer::setGeometry(std::shared_ptr<const SSL_GeometryData> pVision)
 {
     pGeometryPacket_ = pVision;
 
-    if(!pVision || !pVision->has_geometry())
+    if(!pVision)
         return;
 
-    const SSL_GeometryFieldSize& fieldSize = pVision->geometry().field();
+    const SSL_GeometryFieldSize& fieldSize = pVision->field();
     int32_t totalWidth = (fieldSize.field_length() + fieldSize.boundary_width()*2) / (int32_t)scale_;
     int32_t totalHeight = (fieldSize.field_width() + fieldSize.boundary_width()*2) / (int32_t)scale_;
 
@@ -46,7 +46,7 @@ void FieldVisualizer::update(std::shared_ptr<TrackerWrapperPacket> pTracker)
     BLRgba32 underlineYellow(0xFFFFD700);
     BLRgba32 underlineBlue(0xFF0000FF);
 
-    if(!pTracker->has_tracked_frame())
+    if(!pTracker->has_tracked_frame() || !pGeometryPacket_)
         return;
 
     // TODO: distinguish tracker sources?
@@ -65,7 +65,7 @@ void FieldVisualizer::update(std::shared_ptr<TrackerWrapperPacket> pTracker)
     ctx_.setStrokeStyle(BLRgba32(0xFFFFFFFF));
     ctx_.setStrokeWidth(2);
 
-    const SSL_GeometryFieldSize& fieldSize = pGeometryPacket_->geometry().field();
+    const SSL_GeometryFieldSize& fieldSize = pGeometryPacket_->field();
 
     for(const auto& line : fieldSize.field_lines())
     {
