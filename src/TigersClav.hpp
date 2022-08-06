@@ -20,6 +20,7 @@ private:
     void drawGameLogPanel();
     void drawVideoPanel();
     void drawProjectPanel();
+    void drawSyncPanel();
 
     std::unique_ptr<Project> pProject_;
     std::unique_ptr<ImageComposer> pImageComposer_;
@@ -36,6 +37,10 @@ private:
     float cameraTime_s_;
     bool cameraAutoPlay_;
     bool cameraSliderHovered_;
+
+    char camNameBuf_[128];
+
+    std::deque<Video::CacheLevels> cacheLevelBuffer_;
 
     GLuint scoreBoardTexture_;
     GLuint fieldVisualizerTexture_;

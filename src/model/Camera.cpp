@@ -39,13 +39,25 @@ AVFrame* Camera::getAVFrame(int64_t timestamp_ns)
 {
     int64_t currentOffset_ns = 0;
 
-    for(const auto& pVideo : pVideos_)
+    for(auto iter = pVideos_.begin(); iter != pVideos_.end(); iter++)
     {
+        const auto pVideo = *iter;
+
         int64_t videoStart = currentOffset_ns + pVideo->frontGap_ns_;
         int64_t videoEnd = videoStart + pVideo->pVideo_->getDuration_ns();
 
+        if(videoEnd - timestamp_ns < 1000000000LL && iter != pVideos_.end())
+        {
+            auto copy = iter;
+            copy++;
+
+            if(copy != pVideos_.end())
+                (*copy)->pVideo_->getFrame(0);
+        }
+
         if(timestamp_ns >= videoStart && timestamp_ns < videoEnd)
         {
+            lastCacheLevels_ = pVideo->pVideo_->getCacheLevels();
             return pVideo->pVideo_->getFrameByTime(timestamp_ns - videoStart);
         }
 

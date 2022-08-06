@@ -17,6 +17,12 @@ extern "C" {
 class Video
 {
 public:
+    struct CacheLevels
+    {
+        float before;
+        float after;
+    };
+
     Video(std::string filename);
     ~Video();
 
@@ -31,6 +37,8 @@ public:
     std::string getFilename() const { return filename_; }
 
     std::list<std::string> getFileDetails() const;
+
+    CacheLevels getCacheLevels() const { return CacheLevels{ cacheLevelBefore_, cacheLevelAfter_}; }
 
     enum AVPixelFormat internalGetHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts);
 
@@ -54,6 +62,25 @@ private:
         AVFrame* pFrame;
     };
 
+    class AVPacketWrapper
+    {
+    public:
+        AVPacketWrapper()
+        {
+            pPacket = av_packet_alloc();
+        }
+
+        ~AVPacketWrapper()
+        {
+            av_packet_free(&pPacket);
+        }
+
+        AVPacketWrapper(const AVPacketWrapper&) = delete;
+        AVPacketWrapper& operator=(const AVPacketWrapper&) = delete;
+
+        AVPacket* pPacket;
+    };
+
     void preloader();
     std::shared_ptr<AVFrameWrapper> readNextFrame();
     std::string err2str(int errnum);
@@ -70,11 +97,16 @@ private:
     std::map<int64_t, std::shared_ptr<AVFrameWrapper>> cachedFrames_;
     std::atomic<int64_t> requestedPts_;
 
+    std::atomic<float> cacheLevelBefore_;
+    std::atomic<float> cacheLevelAfter_;
+
     int64_t videoPtsIncrement_;
     float frameDeltaTime_s_;
 
     bool isLoaded_;
     std::string filename_;
+
+    bool debug_;
 
     AVFormatContext* pFormatContext_;
     AVCodec* pVideoCodec_;
@@ -82,9 +114,6 @@ private:
     AVCodecContext* pVideoCodecContext_;
     enum AVPixelFormat hwPixFormat_;
     AVBufferRef *pHwDeviceContext_;
-
-    AVFrame* pFrame_;
-    AVPacket* pPacket_;
 
     AVCodec* pAudioCodec_;
     AVStream* pAudioStream_;

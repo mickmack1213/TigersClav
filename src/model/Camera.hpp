@@ -27,6 +27,8 @@ public:
     int64_t getTotalDuration_ns() const;
     AVFrame* getAVFrame(int64_t timestamp_ns);
 
+    const Video::CacheLevels& getLastCacheLevels() const { return lastCacheLevels_; }
+
     float getFrameDeltaTime() const;
 
     void addVideo(std::string name);
@@ -36,4 +38,6 @@ public:
 private:
     std::string name_;
     std::list<std::shared_ptr<VideoRecording>> pVideos_;
+
+    Video::CacheLevels lastCacheLevels_;
 };

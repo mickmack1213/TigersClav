@@ -21,6 +21,8 @@ TigersClav::TigersClav()
 
     pProject_ = std::make_unique<Project>();
 
+    snprintf(camNameBuf_, sizeof(camNameBuf_), "Camera 1");
+
     // TODO: move this to project
     std::ifstream openPath("lastFileOpenPath.txt");
     if(openPath)
@@ -99,6 +101,10 @@ void TigersClav::render()
     // Project Panel
     ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
     drawProjectPanel();
+
+    // Sync (Video+GameLog) Panel
+    ImGui::SetNextWindowDockID(dockspaceId, ImGuiCond_FirstUseEver);
+    drawSyncPanel();
 }
 
 void TigersClav::drawProjectPanel()
@@ -248,12 +254,10 @@ void TigersClav::drawProjectPanel()
 
         if(ImGui::BeginPopupModal("Camera Name", NULL, ImGuiWindowFlags_AlwaysAutoResize))
         {
-            static char camNameBuf[128];
+            ImGui::InputText("##Camera_name", camNameBuf_, sizeof(camNameBuf_));
 
-            ImGui::InputText("##Camera_name", camNameBuf, sizeof(camNameBuf));
-
-            auto existsIter = std::find_if(pProject_->getCameras().begin(), pProject_->getCameras().end(), [&](auto pCam){ return pCam->getName() == std::string(camNameBuf); });
-            const bool invalidName = existsIter != pProject_->getCameras().end() || std::string(camNameBuf).empty();
+            auto existsIter = std::find_if(pProject_->getCameras().begin(), pProject_->getCameras().end(), [&](auto pCam){ return pCam->getName() == std::string(camNameBuf_); });
+            const bool invalidName = existsIter != pProject_->getCameras().end() || std::string(camNameBuf_).empty();
 
             if(invalidName)
             {
@@ -267,10 +271,10 @@ void TigersClav::drawProjectPanel()
             {
                 ImGui::CloseCurrentPopup();
 
-                auto pCamera = std::make_shared<Camera>(std::string(camNameBuf));
+                auto pCamera = std::make_shared<Camera>(std::string(camNameBuf_));
                 pProject_->getCameras().push_back(pCamera);
 
-                camNameBuf[0] = 0;
+                snprintf(camNameBuf_, sizeof(camNameBuf_), "Camera %d", pProject_->getCameras().size()+1);
             }
 
             if(invalidName)
@@ -290,6 +294,13 @@ void TigersClav::drawProjectPanel()
 
         ImGui::TreePop();
     }
+
+    ImGui::End();
+}
+
+void TigersClav::drawSyncPanel()
+{
+    ImGui::Begin("Sync");
 
     ImGui::End();
 }
@@ -465,6 +476,10 @@ void TigersClav::drawVideoPanel()
     {
         std::shared_ptr<Camera> pCamera = pProject_->getCameras().at(cameraIndex_);
 
+        cacheLevelBuffer_.push_back(pCamera->getLastCacheLevels());
+        while(cacheLevelBuffer_.size() > 200)
+            cacheLevelBuffer_.pop_front();
+
         float tMax_s = pCamera->getTotalDuration_ns() * 1e-9f;
         float dt_s = pCamera->getFrameDeltaTime();
 
@@ -500,9 +515,10 @@ void TigersClav::drawVideoPanel()
 
         if(cameraAutoPlay_)
         {
-            cameraTime_s_ += ImGui::GetIO().DeltaTime;
+//            if(pCamera->getLastCacheLevels().after > 0.33f)
+                cameraTime_s_ += ImGui::GetIO().DeltaTime;
 
-            if(ImGui::Button("Pause", ImVec2(50, 0)) || cameraTime_s_ * 1e9 > pCamera->getTotalDuration_ns())
+            if(ImGui::Button("Pause", ImVec2(50, 0)))
             {
                 cameraAutoPlay_ = false;
             }
@@ -513,6 +529,35 @@ void TigersClav::drawVideoPanel()
             {
                 cameraAutoPlay_ = true;
             }
+        }
+
+        std::vector<float> before;
+        std::vector<float> after;
+
+        for(Video::CacheLevels levels : cacheLevelBuffer_)
+        {
+            before.push_back(levels.before);
+            after.push_back(levels.after);
+        }
+
+        char beforeText[16];
+        char afterText[16];
+
+        snprintf(beforeText, sizeof(beforeText), "%.0f%%", pCamera->getLastCacheLevels().before*100.0f);
+        snprintf(afterText, sizeof(afterText), "%.0f%%", pCamera->getLastCacheLevels().after*100.0f);
+
+        ImGui::Text("Cache before: ");
+        ImGui::SameLine(120.0f);
+        ImGui::PlotLines("##Cache before", before.data(), before.size(), 0, beforeText, 0.0f, 1.0f, ImVec2(0, 50));
+
+        ImGui::Text("Cache after: ");
+        ImGui::SameLine(120.0f);
+        ImGui::PlotLines("##Cache after", after.data(), after.size(), 0, afterText, 0.0f, 1.0f, ImVec2(0, 50));
+
+        if(cameraTime_s_ * 1e9 > pCamera->getTotalDuration_ns())
+        {
+            cameraTime_s_ = pCamera->getTotalDuration_ns() * 1e-9;
+            cameraAutoPlay_ = false;
         }
 
         AVFrame* pFrame = pCamera->getAVFrame(cameraTime_s_ * 1e9);
