@@ -6,6 +6,9 @@
 class Project
 {
 public:
+    void load(std::string filename);
+    void save(std::string filename);
+
     int64_t getTotalDuration() const;
 
     void openGameLog(std::string filename);

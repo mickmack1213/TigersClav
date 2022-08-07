@@ -7,10 +7,10 @@ TigersClav::TigersClav()
  gameLogTime_s_(0.0f),
  gameLogAutoPlay_(false),
  gameLogSliderHovered_(false),
- cameraTime_s_(0.0f),
- cameraAutoPlay_(false),
- cameraSliderHovered_(false),
- cameraIndex_(-1)
+ recordingTime_s_(0.0f),
+ recordingAutoPlay_(false),
+ recordingSliderHovered_(false),
+ recordingIndex_(-1)
 {
     glGenTextures(1, &scoreBoardTexture_);
     glGenTextures(1, &fieldVisualizerTexture_);
@@ -22,6 +22,7 @@ TigersClav::TigersClav()
     pProject_ = std::make_unique<Project>();
 
     snprintf(camNameBuf_, sizeof(camNameBuf_), "Camera 1");
+    markerNameBuf_[0] = 0;
 
     // TODO: move this to project
     std::ifstream openPath("lastFileOpenPath.txt");
@@ -302,6 +303,79 @@ void TigersClav::drawSyncPanel()
 {
     ImGui::Begin("Sync");
 
+    const float heightCamera = 40.0f;
+    const float heightGameLog = 40.0f;
+    const float firstColWidth = 100.0f;
+
+    const ImVec2 regionAvail = ImGui::GetContentRegionAvail();
+    const int64_t projectDuration = pProject_->getTotalDuration();
+    const double scaleX = (regionAvail.x - firstColWidth) / (double)projectDuration;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+
+    auto pGameLog = pProject_->getGameLog();
+    if(pGameLog)
+    {
+        // draw gamelog
+        ImGui::Text("Gamelog");
+        ImGui::SameLine(firstColWidth);
+        ImVec2 logBtnScreenPos = ImGui::GetCursorScreenPos();
+        ImGui::Button("log", ImVec2(pGameLog->getTotalDuration_ns() * scaleX, heightGameLog));
+
+        ImVec2 logBtnSize = ImGui::GetItemRectSize();
+
+        for(const auto& marker : pGameLog->getSyncMarkers())
+        {
+            float xPos = logBtnScreenPos.x + logBtnSize.x * (double)marker.timestamp_ns/(double)pGameLog->getTotalDuration_ns();
+            float yPos = logBtnScreenPos.y - 1.0f;
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(xPos, yPos), ImVec2(xPos, yPos+logBtnSize.y), 0xFF0000FF, 2.0f);
+        }
+    }
+
+    // draw cameras
+    int recordingIndex = 0;
+    for(const auto& pCamera : pProject_->getCameras())
+    {
+        ImGui::Text(pCamera->getName().c_str());
+        ImGui::SameLine(100.0f);
+
+        for(const auto& pRecording : pCamera->getVideos())
+        {
+            ImGui::InvisibleButton((pRecording->getName() + "_gap").c_str(), ImVec2(pRecording->frontGap_ns_ * scaleX, heightCamera));
+            ImGui::SameLine(0.0f, 0.0f);
+
+            ImVec2 btnScreenPos = ImGui::GetCursorScreenPos();
+            if(ImGui::Button(pRecording->getName().c_str(), ImVec2(pRecording->pVideo_->getDuration_ns() * scaleX, heightCamera)))
+            {
+                recordingIndex_ = recordingIndex;
+                recordingAutoPlay_ = false;
+
+                // TODO: or try to sync with bufferedRecordingTimes_? need to construct name then to match keys
+                if(pRecording->syncMarker_.has_value())
+                    recordingTime_s_ = pRecording->syncMarker_->timestamp_ns * 1e-9;
+                else
+                    recordingTime_s_ = 0.0f;
+            }
+
+            ImVec2 btnSize = ImGui::GetItemRectSize();
+
+            if(pRecording->syncMarker_.has_value())
+            {
+                float xPos = btnScreenPos.x + btnSize.x * (double)pRecording->syncMarker_->timestamp_ns/(double)pRecording->pVideo_->getDuration_ns();
+                float yPos = btnScreenPos.y - 1.0f;
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(xPos, yPos), ImVec2(xPos, yPos+btnSize.y), 0xFF0000FF, 2.0f);
+            }
+
+            ImGui::SameLine(0.0f, 0.0f);
+
+            recordingIndex++;
+        }
+
+        ImGui::NewLine();
+    }
+
+    ImGui::PopStyleVar();
+
     ImGui::End();
 }
 
@@ -309,7 +383,7 @@ void TigersClav::drawGameLogPanel()
 {
     ImGui::Begin("Gamelog");
 
-    ImVec2 regionAvail = ImGui::GetContentRegionAvail();
+    const ImVec2 regionAvail = ImGui::GetContentRegionAvail();
 
     const float aspectRatioScoreBoard = (float)pScoreBoard_->getImageData().size.h / pScoreBoard_->getImageData().size.w;
     const float aspectRatioField = (float)pFieldVisualizer_->getImageData().size.h / pFieldVisualizer_->getImageData().size.w;
@@ -414,6 +488,79 @@ void TigersClav::drawGameLogPanel()
 
         ImGui::NewLine();
 
+        if(ImGui::BeginTable("##Markers", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter))
+        {
+            // Time, Name, GoTo, Delete
+            std::vector<SyncMarker>::iterator removeIter = pGameLog->getSyncMarkers().end();
+
+            for(auto iter = pGameLog->getSyncMarkers().begin(); iter != pGameLog->getSyncMarkers().end(); iter++)
+            {
+                auto marker = *iter;
+
+                ImGui::PushID(marker.name.c_str());
+
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%.3f", marker.timestamp_ns * 1e-9);
+
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text(marker.name.c_str());
+
+                ImGui::TableNextColumn();
+                if(ImGui::Button("Jump To"))
+                {
+                    gameLogTime_s_ = marker.timestamp_ns * 1e-9;
+                    pGameLog->seekTo(gameLogTime_s_ * 1e9);
+                }
+
+                ImGui::TableNextColumn();
+                if(ImGui::Button("Delete"))
+                {
+                    removeIter = iter;
+                }
+
+                ImGui::PopID();
+            }
+
+            if(removeIter != pGameLog->getSyncMarkers().end())
+                pGameLog->getSyncMarkers().erase(removeIter);
+
+            ImGui::EndTable();
+        }
+
+        if(ImGui::Button("Add Marker"))
+            ImGui::OpenPopup("MarkerName");
+
+        if(ImGui::BeginPopup("MarkerName"))
+        {
+            ImGui::InputText("Marker Name", markerNameBuf_,  sizeof(markerNameBuf_));
+
+            auto findIter = std::find_if(pGameLog->getSyncMarkers().begin(), pGameLog->getSyncMarkers().end(), [&](SyncMarker& marker){ return marker.name == std::string(markerNameBuf_); });
+            if(findIter == pGameLog->getSyncMarkers().end())
+            {
+                if(ImGui::Button("Create"))
+                {
+                    SyncMarker marker;
+                    marker.name = std::string(markerNameBuf_);
+                    marker.timestamp_ns = gameLogTime_s_ * 1e9;
+
+                    pGameLog->getSyncMarkers().push_back(marker);
+
+                    markerNameBuf_[0] = 0;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            else
+            {
+                ImGui::Text("Duplicate marker name!");
+            }
+
+            ImGui::EndPopup();
+        }
+
         std::optional<GameLog::Entry> entry = pGameLog->get();
         if(entry)
         {
@@ -447,90 +594,213 @@ void TigersClav::drawVideoPanel()
 
     pImageComposer_->begin();
 
-    if(!pProject_->getCameras().empty())
-    {
-        if(cameraIndex_ < 0)
-            cameraIndex_ = 0;
+    std::vector<std::pair<std::string, std::shared_ptr<VideoRecording>>> recordings;
 
-        if(ImGui::BeginCombo("Camera", pProject_->getCameras().at(cameraIndex_)->getName().c_str()))
+    for(auto pCam : pProject_->getCameras())
+    {
+        for(std::shared_ptr<VideoRecording> pRec : pCam->getVideos())
         {
-            for(size_t i = 0; i < pProject_->getCameras().size(); i++)
+            recordings.push_back(std::make_pair(pCam->getName() + " - " + pRec->getName(), pRec));
+        }
+    }
+
+    if(!recordings.empty())
+    {
+        if(recordingIndex_ < 0 || recordingIndex_ >= recordings.size())
+            recordingIndex_ = 0;
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Source:");
+        ImGui::SameLine();
+
+        ImGui::SetNextItemWidth(-1.0f);
+        if(ImGui::BeginCombo("##RecordingSrc", recordings.at(recordingIndex_).first.c_str()))
+        {
+            for(size_t iRec = 0; iRec < recordings.size(); iRec++)
             {
-                bool isSelected = i == cameraIndex_;
-                if(ImGui::Selectable(pProject_->getCameras().at(i)->getName().c_str(), isSelected))
-                    cameraIndex_ = i;
+                bool isSelected = iRec == recordingIndex_;
+
+                if(ImGui::Selectable(recordings.at(iRec).first.c_str(), isSelected))
+                {
+                    recordingIndex_ = iRec;
+
+                    auto bufIter = bufferedRecordingTimes_.find(recordings.at(iRec).first);
+                    if(bufIter != bufferedRecordingTimes_.end())
+                    {
+                        if(bufIter->second >= 0.0f && bufIter->second <= recordings[iRec].second->pVideo_->getDuration_ns()*1e-9)
+                        {
+                            recordingTime_s_ = bufIter->second;
+                        }
+                        else
+                            recordingTime_s_ = 0.0f;
+                    }
+                    else
+                    {
+                        recordingTime_s_ = 0.0f;
+                    }
+
+                    recordingAutoPlay_ = false;
+                }
 
                 if (isSelected)
                     ImGui::SetItemDefaultFocus();
             }
+
             ImGui::EndCombo();
         }
     }
 
-    if(cameraIndex_ >= pProject_->getCameras().size())
+    if(recordingIndex_ >= recordings.size())
     {
-        cameraIndex_ = -1;
+        recordingIndex_ = -1;
     }
 
-    if(cameraIndex_ >= 0)
+    if(recordingIndex_ >= 0)
     {
-        std::shared_ptr<Camera> pCamera = pProject_->getCameras().at(cameraIndex_);
+        bufferedRecordingTimes_[recordings.at(recordingIndex_).first] = recordingTime_s_;
 
-        cacheLevelBuffer_.push_back(pCamera->getLastCacheLevels());
+        std::shared_ptr<VideoRecording> pRecording = recordings.at(recordingIndex_).second;
+        std::shared_ptr<Video> pVideo = pRecording->pVideo_;
+
+        Video::CacheLevels cacheLevels = pVideo->getCacheLevels();
+
+        cacheLevelBuffer_.push_back(cacheLevels);
         while(cacheLevelBuffer_.size() > 200)
             cacheLevelBuffer_.pop_front();
 
-        float tMax_s = pCamera->getTotalDuration_ns() * 1e-9f;
-        float dt_s = pCamera->getFrameDeltaTime();
+        float tMax_s = pVideo->getDuration_ns() * 1e-9f;
+        float dt_s = pVideo->getFrameDeltaTime();
 
         float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
         ImGui::PushButtonRepeat(true);
-        if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (cameraSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
+        if(ImGui::ArrowButton("##left", ImGuiDir_Left) || (recordingSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_LeftArrow)))
         {
-            if(cameraTime_s_ > dt_s)
-                cameraTime_s_ -= dt_s;
+            if(recordingTime_s_ > dt_s)
+                recordingTime_s_ -= dt_s;
 
-            cameraAutoPlay_ = false;
+            recordingAutoPlay_ = false;
         }
 
         ImGui::SameLine(0.0f, spacing);
         ImGui::SetNextItemWidth(-78.0f);
-        ImGui::SliderFloat("##CameraTime", &cameraTime_s_, 0.0f, tMax_s, "%.3fs", ImGuiSliderFlags_AlwaysClamp);
-        cameraSliderHovered_ = ImGui::IsItemHovered();
+        ImVec2 camTimePos = ImGui::GetCursorPos();
+        ImVec2 camTimePosScreen = ImGui::GetCursorScreenPos();
+        ImGui::SliderFloat("##CameraTime", &recordingTime_s_, 0.0f, tMax_s, "%.3fs", ImGuiSliderFlags_AlwaysClamp);
+        recordingSliderHovered_ = ImGui::IsItemHovered();
         if(ImGui::IsItemEdited())
-            cameraAutoPlay_ = false;
+            recordingAutoPlay_ = false;
+
+        ImVec2 camTimeSize = ImGui::GetItemRectSize();
 
         ImGui::SameLine(0.0f, spacing);
-        if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (cameraSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
+        const ImVec2 seekNextPos = ImGui::GetCursorPos();
+        if(ImGui::ArrowButton("##right", ImGuiDir_Right) || (recordingSliderHovered_ && ImGui::IsKeyPressed(ImGuiKey_RightArrow)))
         {
-            if(cameraTime_s_+dt_s < tMax_s)
-                cameraTime_s_ += dt_s;
+            if(recordingTime_s_+dt_s < tMax_s)
+                recordingTime_s_ += dt_s;
 
-            cameraAutoPlay_ = false;
+            recordingAutoPlay_ = false;
         }
 
         ImGui::PopButtonRepeat();
 
         ImGui::SameLine(0.0f, spacing);
 
-        if(cameraAutoPlay_)
+        if(recordingAutoPlay_)
         {
 //            if(pCamera->getLastCacheLevels().after > 0.33f)
-                cameraTime_s_ += ImGui::GetIO().DeltaTime;
+                recordingTime_s_ += ImGui::GetIO().DeltaTime;
 
             if(ImGui::Button("Pause", ImVec2(50, 0)))
             {
-                cameraAutoPlay_ = false;
+                recordingAutoPlay_ = false;
             }
         }
         else
         {
             if(ImGui::Button("Play", ImVec2(50, 0)))
             {
-                cameraAutoPlay_ = true;
+                recordingAutoPlay_ = true;
             }
         }
 
+        // Marker drawing
+        if(pRecording->syncMarker_.has_value())
+        {
+            const float markerWidth = 10.0f;
+
+            camTimePos.x += ImGui::GetStyle().GrabMinSize/2 + 2.0f;
+            camTimePosScreen.x += ImGui::GetStyle().GrabMinSize/2 + 2.0f;
+            camTimeSize.x -= ImGui::GetStyle().GrabMinSize + 4.0f;
+
+            float lineBottom = ImGui::GetCursorScreenPos().y;
+
+            float markerTime = pRecording->syncMarker_->timestamp_ns * 1e-9;
+
+            ImGui::SetCursorPosX(camTimePos.x + camTimeSize.x * markerTime/tMax_s - markerWidth/2);
+
+            ImGui::PushStyleColor(ImGuiCol_Button, 0xFF0000B0);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, 0xFF0000B0);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, 0xFF0000FF);
+
+            if(ImGui::Button("##Marker", ImVec2(markerWidth, 0)))
+            {
+                recordingTime_s_ = markerTime;
+                recordingAutoPlay_ = false;
+            }
+
+            if(ImGui::BeginPopupContextItem())
+            {
+                if(ImGui::Button("Delete"))
+                {
+                    pRecording->syncMarker_.reset();
+                }
+
+                ImGui::EndPopup();
+            }
+
+            if(ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Name: %s\nTime: %.3fs", pRecording->syncMarker_->name.c_str(), markerTime);
+            }
+
+            ImGui::PopStyleColor(3);
+
+            ImGui::SameLine();
+
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(camTimePosScreen.x + camTimeSize.x * markerTime/tMax_s - 1.0f, camTimePosScreen.y),
+                            ImVec2(camTimePosScreen.x + camTimeSize.x * markerTime/tMax_s - 1.0f, lineBottom), 0xFF0000B0, 2.0f);
+
+            ImGui::NewLine();
+        }
+        else
+        {
+            ImGui::SetCursorPosX(camTimePos.x + camTimeSize.x/2 - 100.0f);
+            if(ImGui::Button("Set Marker", ImVec2(200.0f, 0.0f)))
+                ImGui::OpenPopup("VideoMarker");
+
+            if(ImGui::BeginPopup("VideoMarker"))
+            {
+                // TODO: list markers from gamelog for easy name copy?
+                ImGui::InputText("Marker Name", markerNameBuf_,  sizeof(markerNameBuf_));
+
+                if(ImGui::Button("Create"))
+                {
+                    SyncMarker marker;
+                    marker.name = std::string(markerNameBuf_);
+                    marker.timestamp_ns = recordingTime_s_ * 1e9;
+
+                    pRecording->syncMarker_ = marker;
+
+                    markerNameBuf_[0] = 0;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::EndPopup();
+            }
+        }
+
+        // Video cache drawing
         std::vector<float> before;
         std::vector<float> after;
 
@@ -543,24 +813,25 @@ void TigersClav::drawVideoPanel()
         char beforeText[16];
         char afterText[16];
 
-        snprintf(beforeText, sizeof(beforeText), "%.0f%%", pCamera->getLastCacheLevels().before*100.0f);
-        snprintf(afterText, sizeof(afterText), "%.0f%%", pCamera->getLastCacheLevels().after*100.0f);
+        snprintf(beforeText, sizeof(beforeText), "%.0f%%", cacheLevels.before*100.0f);
+        snprintf(afterText, sizeof(afterText), "%.0f%%", cacheLevels.after*100.0f);
 
-        ImGui::Text("Cache before: ");
+        ImGui::Separator();
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Frame Cache:");
         ImGui::SameLine(120.0f);
-        ImGui::PlotLines("##Cache before", before.data(), before.size(), 0, beforeText, 0.0f, 1.0f, ImVec2(0, 50));
+        ImGui::PlotLines("##Cache before", before.data(), before.size(), 0, beforeText, 0.0f, 1.0f, ImVec2((regionAvail.x - 120.0f)*0.5f, ImGui::GetFrameHeight()));
+        ImGui::SameLine();
+        ImGui::PlotLines("##Cache after", after.data(), after.size(), 0, afterText, 0.0f, 1.0f, ImVec2((regionAvail.x - 120.0f)*0.5f, ImGui::GetFrameHeight()));
 
-        ImGui::Text("Cache after: ");
-        ImGui::SameLine(120.0f);
-        ImGui::PlotLines("##Cache after", after.data(), after.size(), 0, afterText, 0.0f, 1.0f, ImVec2(0, 50));
-
-        if(cameraTime_s_ * 1e9 > pCamera->getTotalDuration_ns())
+        // Play logic and finally frame drawing
+        if(recordingTime_s_ > tMax_s)
         {
-            cameraTime_s_ = pCamera->getTotalDuration_ns() * 1e-9;
-            cameraAutoPlay_ = false;
+            recordingTime_s_ = tMax_s;
+            recordingAutoPlay_ = false;
         }
 
-        AVFrame* pFrame = pCamera->getAVFrame(cameraTime_s_ * 1e9);
+        AVFrame* pFrame = pVideo->getFrameByTime(recordingTime_s_ * 1e9);
         if(pFrame)
             pImageComposer_->drawVideoFrameRGB(pFrame);
     }

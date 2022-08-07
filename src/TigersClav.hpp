@@ -33,12 +33,15 @@ private:
     bool gameLogAutoPlay_;
     bool gameLogSliderHovered_;
 
-    int cameraIndex_;
-    float cameraTime_s_;
-    bool cameraAutoPlay_;
-    bool cameraSliderHovered_;
+    int recordingIndex_;
+    float recordingTime_s_;
+    bool recordingAutoPlay_;
+    bool recordingSliderHovered_;
+
+    std::map<std::string, float> bufferedRecordingTimes_;
 
     char camNameBuf_[128];
+    char markerNameBuf_[128];
 
     std::deque<Video::CacheLevels> cacheLevelBuffer_;
 

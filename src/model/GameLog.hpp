@@ -37,6 +37,8 @@ public:
     bool isLoaded() const { return pGameLog_->isLoaded(); }
     void abortLoading() { pGameLog_->abortLoading(); }
 
+    std::vector<SyncMarker>& getSyncMarkers() { return syncMarkers_; }
+
 private:
     std::shared_ptr<SSLGameLog> pGameLog_;
     std::vector<SyncMarker> syncMarkers_; // TODO: add methods

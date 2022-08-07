@@ -2,6 +2,7 @@
 
 #include "SyncMarker.hpp"
 #include "data/Video.hpp"
+#include <optional>
 
 class VideoRecording
 {
@@ -11,7 +12,7 @@ public:
     std::string getName() const;
 
     std::shared_ptr<Video> pVideo_;
-    SyncMarker syncMarker_;
+    std::optional<SyncMarker> syncMarker_;
 
     int64_t offsetToGameLog_ns_; // gamelog t=0 to video t=0
 

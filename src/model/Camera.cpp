@@ -85,6 +85,7 @@ void Camera::addVideo(std::string name)
     }
 
     std::shared_ptr<VideoRecording> pRec = std::make_shared<VideoRecording>(name);
+//    pRec->frontGap_ns_ = 10*1e9; // TODO: testing
 
     if(pRec->pVideo_->isLoaded())
         pVideos_.emplace_back(pRec);
