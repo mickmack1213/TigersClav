@@ -1,6 +1,7 @@
 #include "TigersClav.hpp"
 #include "ImGuiFileDialog.h"
 #include "LogViewer.hpp"
+#include <filesystem>
 
 TigersClav::TigersClav()
 :lastFileOpenPath_("."),
@@ -24,7 +25,6 @@ TigersClav::TigersClav()
     snprintf(camNameBuf_, sizeof(camNameBuf_), "Camera 1");
     markerNameBuf_[0] = 0;
 
-    // TODO: move this to project
     std::ifstream openPath("lastFileOpenPath.txt");
     if(openPath)
     {
@@ -67,17 +67,22 @@ void TigersClav::render()
     {
         if(ImGui::BeginMenu("Project"))
         {
-            // TODO: implement project save/load
             if(ImGui::MenuItem("Open...", "CTRL+O"))
             {
+                ImGuiFileDialog::Instance()->OpenDialog("OpenProjectDialog", ICON_IGFD_FOLDER_OPEN "Choose File", "Clav Project {.clav_prj}", lastFileOpenPath_, 1, 0, ImGuiFileDialogFlags_Modal);
             }
 
-            if(ImGui::MenuItem("Save"), "CTRL+S")
+            if(ImGui::MenuItem("Save"))
             {
+                if(pProject_->getFilename().empty())
+                    ImGuiFileDialog::Instance()->OpenDialog("SaveProjectDialog", ICON_IGFD_SAVE "Choose File", "Clav Project {.clav_prj}", lastFileOpenPath_, 1, 0, ImGuiFileDialogFlags_Modal);
+                else
+                    pProject_->save(pProject_->getFilename());
             }
 
             if(ImGui::MenuItem("Save As..."))
             {
+                ImGuiFileDialog::Instance()->OpenDialog("SaveProjectDialog", ICON_IGFD_SAVE "Choose File", "Clav Project {.clav_prj}", lastFileOpenPath_, 1, 0, ImGuiFileDialogFlags_Modal);
             }
 
             ImGui::EndMenu();
@@ -87,6 +92,38 @@ void TigersClav::render()
     }
 
     ImGui::End();
+
+    if(ImGuiFileDialog::Instance()->Display("OpenProjectDialog", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
+    {
+        if(ImGuiFileDialog::Instance()->IsOk())
+        {
+            lastFileOpenPath_ = ImGuiFileDialog::Instance()->GetCurrentPath() + "/";
+
+            std::ofstream openPath("lastFileOpenPath.txt", std::ofstream::trunc);
+            openPath << lastFileOpenPath_;
+            openPath.close();
+
+            pProject_->load(ImGuiFileDialog::Instance()->GetFilePathName());
+        }
+
+        ImGuiFileDialog::Instance()->Close();
+    }
+
+    if(ImGuiFileDialog::Instance()->Display("SaveProjectDialog", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
+    {
+        if(ImGuiFileDialog::Instance()->IsOk())
+        {
+            lastFileOpenPath_ = ImGuiFileDialog::Instance()->GetCurrentPath() + "/";
+
+            std::ofstream openPath("lastFileOpenPath.txt", std::ofstream::trunc);
+            openPath << lastFileOpenPath_;
+            openPath.close();
+
+            pProject_->save(ImGuiFileDialog::Instance()->GetFilePathName());
+        }
+
+        ImGuiFileDialog::Instance()->Close();
+    }
 
     // Log Panel
     el::Helpers::logDispatchCallback<LogViewer>("LogViewer")->render();
@@ -110,9 +147,12 @@ void TigersClav::render()
 
 void TigersClav::drawProjectPanel()
 {
-    ImGui::Begin("Project");
+    if(pProject_->getFilename().empty())
+        ImGui::Begin("Project");
+    else
+        ImGui::Begin((std::string("Project - ") + std::filesystem::path(pProject_->getFilename()).stem().string()).c_str());
 
-    if(ImGui::TreeNodeEx("Gamelog", ImGuiTreeNodeFlags_FramePadding))
+    if(ImGui::TreeNodeEx("Gamelog", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_DefaultOpen))
     {
         if(pProject_->getGameLog())
         {

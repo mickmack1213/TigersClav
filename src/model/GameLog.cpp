@@ -3,7 +3,8 @@
 #include "util/easylogging++.h"
 
 GameLog::GameLog(std::string filename)
-:pGeometry_(nullptr)
+:pGeometry_(nullptr),
+ filename_(filename)
 {
     pGameLog_ = std::make_shared<SSLGameLog>(filename,
                     std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020, MESSAGE_SSL_VISION_2014 });

@@ -37,11 +37,14 @@ public:
     bool isLoaded() const { return pGameLog_->isLoaded(); }
     void abortLoading() { pGameLog_->abortLoading(); }
 
+    std::string getFilename() const { return filename_; }
+
     std::vector<SyncMarker>& getSyncMarkers() { return syncMarkers_; }
 
 private:
+    std::string filename_;
     std::shared_ptr<SSLGameLog> pGameLog_;
-    std::vector<SyncMarker> syncMarkers_; // TODO: add methods
+    std::vector<SyncMarker> syncMarkers_;
 
     SSLGameLog::MsgMapIter refereeIter_;
 
