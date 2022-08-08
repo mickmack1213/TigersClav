@@ -3,6 +3,7 @@
 #include "SyncMarker.hpp"
 #include "data/Video.hpp"
 #include <optional>
+#include <vector>
 
 class VideoRecording
 {
@@ -14,8 +15,7 @@ public:
     std::shared_ptr<Video> pVideo_;
     std::optional<SyncMarker> syncMarker_;
 
-    int64_t offsetToGameLog_ns_; // gamelog t=0 to video t=0
-
+    int64_t tStart_ns_; // gamelog t=0 to video t=0
     int64_t frontGap_ns_; // gap between this recording and the previous one
 };
 
@@ -34,11 +34,11 @@ public:
 
     void addVideo(std::string name);
 
-    std::list<std::shared_ptr<VideoRecording>>& getVideos() { return pVideos_; }
+    std::vector<std::shared_ptr<VideoRecording>>& getVideos() { return pVideos_; }
 
 private:
     std::string name_;
-    std::list<std::shared_ptr<VideoRecording>> pVideos_;
+    std::vector<std::shared_ptr<VideoRecording>> pVideos_;
 
     Video::CacheLevels lastCacheLevels_;
 };

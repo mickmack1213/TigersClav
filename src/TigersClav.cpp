@@ -203,7 +203,7 @@ void TigersClav::drawProjectPanel()
                 }
 
                 // show videos
-                std::list<std::shared_ptr<VideoRecording>>::iterator removeVideoIter = pCam->getVideos().end();
+                std::vector<std::shared_ptr<VideoRecording>>::iterator removeVideoIter = pCam->getVideos().end();
 
                 for(const auto& pVideo : pCam->getVideos())
                 {
@@ -351,6 +351,11 @@ void TigersClav::drawSyncPanel()
     const int64_t projectDuration = pProject_->getTotalDuration();
     const double scaleX = (regionAvail.x - firstColWidth) / (double)projectDuration;
 
+    if(ImGui::Button("Refresh"))
+    {
+        pProject_->sync();
+    }
+
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
 
     auto pGameLog = pProject_->getGameLog();
@@ -359,6 +364,11 @@ void TigersClav::drawSyncPanel()
         // draw gamelog
         ImGui::Text("Gamelog");
         ImGui::SameLine(firstColWidth);
+        if(pProject_->getMinTStart() < 0)
+        {
+            ImGui::InvisibleButton("gamelog_gap", ImVec2(-pProject_->getMinTStart() * scaleX, heightGameLog));
+            ImGui::SameLine(0.0f, 0.0f);
+        }
         ImVec2 logBtnScreenPos = ImGui::GetCursorScreenPos();
         ImGui::Button("log", ImVec2(pGameLog->getTotalDuration_ns() * scaleX, heightGameLog));
 

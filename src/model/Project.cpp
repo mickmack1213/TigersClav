@@ -16,7 +16,20 @@ int64_t Project::getTotalDuration() const
         cameraDuration = std::max(cameraDuration, pCam->getTotalDuration_ns());
     }
 
-    return std::max(cameraDuration, gamelogDuration);
+    return std::max(cameraDuration-getMinTStart(), gamelogDuration);
+}
+
+int64_t Project::getMinTStart() const
+{
+    int64_t tStartMin = 0;
+
+    for(const auto& pCam : pCameras_)
+    {
+        if(!pCam->getVideos().empty())
+            tStartMin = std::min(tStartMin, pCam->getVideos()[0]->tStart_ns_);
+    }
+
+    return tStartMin;
 }
 
 void Project::openGameLog(std::string filename)
@@ -180,11 +193,10 @@ void Project::sync()
     if(!pGameLog_ || !pGameLog_->isLoaded() || pGameLog_->getSyncMarkers().empty())
         return;
 
+    int64_t tStartMin_ns = 0;
+
     for(const auto& pCam : pCameras_)
     {
-        bool hasAnySync = false;
-        int64_t frontGap_ns = 0;
-
         std::vector<Rec> recs;
 
         for(auto recIter = pCam->getVideos().begin(); recIter != pCam->getVideos().end(); recIter++)
@@ -216,6 +228,83 @@ void Project::sync()
             recs.push_back(rec);
         }
 
-        // TODO: compute tStart for all recordings
+        LOG(INFO) << "Camera: " << pCam->getName();
+        for(auto rec : recs)
+            LOG(INFO) << "  sync: " << rec.synced << ", tStart: " << rec.tStart_ns << ", dur: " << rec.duration_ns;
+
+        // forward tStart update
+        bool syncFound = false;
+        int64_t tStartNext_ns = 0;
+
+        for(size_t i = 0; i < recs.size(); i++)
+        {
+            if(recs[i].synced)
+            {
+                tStartMin_ns = std::min(tStartMin_ns, recs[i].tStart_ns);
+
+                tStartNext_ns = recs[i].tStart_ns + recs[i].duration_ns;
+                syncFound = true;
+            }
+            else
+            {
+                if(!syncFound)
+                    continue;
+
+                recs[i].synced = true;
+                recs[i].tStart_ns = tStartNext_ns;
+                tStartNext_ns += recs[i].duration_ns;
+            }
+        }
+
+        // reverse tStart update
+        syncFound = false;
+        int64_t tStartLast_ns = 0;
+
+        for(int64_t i = recs.size()-1; i >= 0; i--)
+        {
+            if(recs[i].synced)
+            {
+                tStartLast_ns = recs[i].tStart_ns;
+                syncFound = true;
+            }
+            else
+            {
+                if(!syncFound)
+                    continue;
+
+                recs[i].synced = true;
+                recs[i].tStart_ns = tStartLast_ns - recs[i].duration_ns;
+                tStartLast_ns = recs[i].tStart_ns;
+
+                tStartMin_ns = std::min(tStartMin_ns, recs[i].tStart_ns);
+            }
+        }
+
+        LOG(INFO) << "Updated Camera: " << pCam->getName();
+        for(auto rec : recs)
+            LOG(INFO) << "  sync: " << rec.synced << ", tStart: " << rec.tStart_ns << ", dur: " << rec.duration_ns;
+
+        for(size_t i = 0; i < pCam->getVideos().size(); i++)
+        {
+            auto pCur = pCam->getVideos()[i];
+            pCur->tStart_ns_ = recs[i].tStart_ns;
+
+            if(i > 0)
+            {
+                pCur->frontGap_ns_ = pCur->tStart_ns_ - (recs[i-1].tStart_ns + recs[i-1].duration_ns);
+                if(pCur->frontGap_ns_ < 0)
+                    pCur->frontGap_ns_ = 0;
+            }
+        }
+    }
+
+    for(const auto& pCam : pCameras_)
+    {
+        if(pCam->getVideos().empty())
+            continue;
+
+        auto pFirst = pCam->getVideos().front();
+
+        pFirst->frontGap_ns_ = pFirst->tStart_ns_ - tStartMin_ns;
     }
 }

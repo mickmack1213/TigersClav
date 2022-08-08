@@ -4,7 +4,7 @@
 #include <algorithm>
 
 VideoRecording::VideoRecording(std::string videoFilename)
-:offsetToGameLog_ns_(0),
+:tStart_ns_(0),
  frontGap_ns_(0)
 {
     pVideo_ = std::make_shared<Video>(videoFilename);

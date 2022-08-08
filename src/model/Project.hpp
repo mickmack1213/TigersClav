@@ -12,6 +12,7 @@ public:
     void sync();
 
     int64_t getTotalDuration() const;
+    int64_t getMinTStart() const;
 
     void openGameLog(std::string filename);
 
