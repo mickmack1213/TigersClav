@@ -7,9 +7,44 @@ GameLog::GameLog(std::string filename)
  filename_(filename)
 {
     pGameLog_ = std::make_shared<SSLGameLog>(filename,
-                    std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020, MESSAGE_SSL_VISION_2014 });
+                    std::set<SSLMessageType>{ MESSAGE_SSL_REFBOX_2013, MESSAGE_SSL_VISION_TRACKER_2020, MESSAGE_SSL_VISION_2014 },
+                    std::bind(&GameLog::onGameLogLoaded, this));
 
     refereeIter_ = pGameLog_->end(MESSAGE_SSL_REFBOX_2013);
+}
+
+void GameLog::onGameLogLoaded()
+{
+    if(pGameLog_->isEmpty(MESSAGE_SSL_REFBOX_2013))
+        return;
+
+    const int64_t firstTimestamp_ns = pGameLog_->getFirstTimestamp_ns();
+
+    auto front = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013);
+
+    RefereeStateChange change;
+    change.timestamp_ns_ = front->first - firstTimestamp_ns;
+    change.pBefore_ = pGameLog_->convertTo<Referee>(front);
+    change.pAfter_ = nullptr;
+
+    for(auto iter = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013); iter != pGameLog_->end(MESSAGE_SSL_REFBOX_2013); iter++)
+    {
+        auto pRef = pGameLog_->convertTo<Referee>(iter);
+
+        if(pRef->stage() != change.pBefore_->stage() || pRef->command() != change.pBefore_->command())
+        {
+            change.timestamp_ns_ = iter->first - firstTimestamp_ns;
+            change.pAfter_ = pRef;
+
+            stateChanges_.push_back(change);
+
+            change.pBefore_ = pRef;
+        }
+    }
+
+    LOG(INFO) << "Found " << stateChanges_.size() << " state changes";
+
+    director_.orchestrate(stateChanges_, getTotalDuration_ns());
 }
 
 int64_t GameLog::getTotalDuration_ns() const

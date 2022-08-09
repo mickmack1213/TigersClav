@@ -50,7 +50,7 @@ public:
     typedef std::map<int64_t, SSLGameLogMsgHeader*> MsgMap;
     typedef MsgMap::const_iterator MsgMapIter;
 
-    SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTypes = RECORDED_MESSAGES);
+    SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTypes = RECORDED_MESSAGES, std::function<void()> loadedCallback = {});
     ~SSLGameLog();
 
     const std::string& getFilename() const { return filename_; }
@@ -84,6 +84,7 @@ private:
     int64_t readInt64(std::istream& file);
 
     std::string filename_;
+    std::function<void()> loadedCallback_;
 
     std::thread loaderThread_;
 

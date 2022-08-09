@@ -1,7 +1,9 @@
 #pragma once
 
 #include "SyncMarker.hpp"
+#include "Director.hpp"
 #include "data/SSLGameLog.hpp"
+#include "RefereeStateChange.hpp"
 
 #include <memory>
 #include <vector>
@@ -17,6 +19,8 @@ public:
         std::shared_ptr<Referee> pReferee_;
         std::shared_ptr<TrackerWrapperPacket> pTracker_;
     };
+
+
 
     GameLog(std::string filename);
 
@@ -41,7 +45,11 @@ public:
 
     std::vector<SyncMarker>& getSyncMarkers() { return syncMarkers_; }
 
+    const Director& getDirector() const { return director_; }
+
 private:
+    void onGameLogLoaded();
+
     std::string filename_;
     std::shared_ptr<SSLGameLog> pGameLog_;
     std::vector<SyncMarker> syncMarkers_;
@@ -52,4 +60,8 @@ private:
 
     std::map<std::string, std::string> trackerSources_;
     std::string preferredTracker_;
+
+    std::vector<RefereeStateChange> stateChanges_;
+
+    Director director_;
 };

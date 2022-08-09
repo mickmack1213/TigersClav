@@ -363,7 +363,7 @@ void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::str
             break;
         case Referee_Command_STOP:
             commandText = "Stop";
-            bgColor = BLRgba32(0xFFe65100);
+            bgColor = BLRgba32(0xFFE65100);
             break;
         case Referee_Command_NORMAL_START:
         case Referee_Command_FORCE_START:

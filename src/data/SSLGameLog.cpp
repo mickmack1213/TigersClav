@@ -10,12 +10,13 @@ const std::set<SSLMessageType> SSLGameLog::RECORDED_MESSAGES = {
                 MESSAGE_SSL_VISION_2014,
                 MESSAGE_SSL_VISION_TRACKER_2020 };
 
-SSLGameLog::SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTypes)
+SSLGameLog::SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTypes, std::function<void()> loadedCallback)
 :shouldAbortLoading_(false),
  isLoaded_(false),
  activePoolUsage_(0),
  firstTimestamp_ns_(-1),
- lastTimestamp_ns_(-1)
+ lastTimestamp_ns_(-1),
+ loadedCallback_(loadedCallback)
 {
     memoryPools_.emplace_back(std::vector<uint8_t>(MEM_POOL_CHUNK_SIZE));
 
@@ -156,6 +157,8 @@ void SSLGameLog::loader(std::string filename, std::set<SSLMessageType> loadMsgTy
     LOG(INFO) << "Loaded gamelog: " << filename;
 
     isLoaded_ = true;
+
+    loadedCallback_();
 }
 
 SSLGameLogStats SSLGameLog::getStats() const

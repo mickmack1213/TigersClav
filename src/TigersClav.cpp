@@ -374,11 +374,34 @@ void TigersClav::drawSyncPanel()
 
         ImVec2 logBtnSize = ImGui::GetItemRectSize();
 
+        const auto& sceneBlocks = pGameLog->getDirector().getSceneBlocks();
+        for(const auto& block : sceneBlocks)
+        {
+            ImU32 col = 0xFF000000;
+
+            switch(block.state_)
+            {
+                case Director::SceneState::HALT: col = 0xFF101077; break;
+                case Director::SceneState::STOP: col = 0xFF0051E6; break;
+                case Director::SceneState::PREPARE: col = 0xFF505E4B; break;
+                case Director::SceneState::RUNNING: col = 0xFF205E1B; break;
+                case Director::SceneState::TIMEOUT: col = 0xFF666666; break;
+                case Director::SceneState::BALL_PLACEMENT:  col = 0xFF880074; break;
+                default: break;
+            }
+
+            float xPos = logBtnScreenPos.x + logBtnSize.x * (double)block.tStart_ns_/(double)pGameLog->getTotalDuration_ns();
+            float yPos = logBtnScreenPos.y + 4.0f;
+            float xPosEnd = logBtnScreenPos.x + logBtnSize.x * (double)block.tEnd_ns_/(double)pGameLog->getTotalDuration_ns();
+            float yPosEnd = logBtnScreenPos.y + logBtnSize.y - 4.0f;
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(xPos, yPos), ImVec2(xPosEnd, yPosEnd), col);
+        }
+
         for(const auto& marker : pGameLog->getSyncMarkers())
         {
             float xPos = logBtnScreenPos.x + logBtnSize.x * (double)marker.timestamp_ns/(double)pGameLog->getTotalDuration_ns();
             float yPos = logBtnScreenPos.y - 1.0f;
-            ImGui::GetWindowDrawList()->AddLine(ImVec2(xPos, yPos), ImVec2(xPos, yPos+logBtnSize.y), 0xFF0000FF, 2.0f);
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(xPos, yPos), ImVec2(xPos, yPos+logBtnSize.y), 0xFF00FF00, 2.0f);
         }
     }
 
@@ -413,7 +436,7 @@ void TigersClav::drawSyncPanel()
             {
                 float xPos = btnScreenPos.x + btnSize.x * (double)pRecording->syncMarker_->timestamp_ns/(double)pRecording->pVideo_->getDuration_ns();
                 float yPos = btnScreenPos.y - 1.0f;
-                ImGui::GetWindowDrawList()->AddLine(ImVec2(xPos, yPos), ImVec2(xPos, yPos+btnSize.y), 0xFF0000FF, 2.0f);
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(xPos, yPos), ImVec2(xPos, yPos+btnSize.y), 0xFF00FF00, 2.0f);
             }
 
             ImGui::SameLine(0.0f, 0.0f);
