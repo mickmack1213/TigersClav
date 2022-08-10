@@ -370,9 +370,23 @@ void TigersClav::drawSyncPanel()
             ImGui::SameLine(0.0f, 0.0f);
         }
         ImVec2 logBtnScreenPos = ImGui::GetCursorScreenPos();
-        ImGui::Button("log", ImVec2(pGameLog->getTotalDuration_ns() * scaleX, heightGameLog));
+        ImGui::InvisibleButton("##log", ImVec2(pGameLog->getTotalDuration_ns() * scaleX, heightGameLog));
 
         ImVec2 logBtnSize = ImGui::GetItemRectSize();
+
+        ImGui::GetWindowDrawList()->AddRect(logBtnScreenPos, ImVec2(logBtnScreenPos.x+logBtnSize.x, logBtnScreenPos.y+logBtnSize.y), 0xFF444444);
+
+        const auto& finalCut = pGameLog->getDirector().getFinalCut();
+        for(const auto& cut : finalCut)
+        {
+            ImU32 col = 0xFF205E1B;
+
+            float xPos = logBtnScreenPos.x + logBtnSize.x * (double)cut.tStart_ns_/(double)pGameLog->getTotalDuration_ns();
+            float yPos = logBtnScreenPos.y + 4.0f;
+            float xPosEnd = logBtnScreenPos.x + logBtnSize.x * (double)cut.tEnd_ns_/(double)pGameLog->getTotalDuration_ns();
+            float yPosEnd = logBtnScreenPos.y + logBtnSize.y - 20.0f;
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(xPos, yPos), ImVec2(xPosEnd, yPosEnd), col);
+        }
 
         const auto& sceneBlocks = pGameLog->getDirector().getSceneBlocks();
         for(const auto& block : sceneBlocks)
@@ -391,7 +405,7 @@ void TigersClav::drawSyncPanel()
             }
 
             float xPos = logBtnScreenPos.x + logBtnSize.x * (double)block.tStart_ns_/(double)pGameLog->getTotalDuration_ns();
-            float yPos = logBtnScreenPos.y + 4.0f;
+            float yPos = logBtnScreenPos.y + 24.0f;
             float xPosEnd = logBtnScreenPos.x + logBtnSize.x * (double)block.tEnd_ns_/(double)pGameLog->getTotalDuration_ns();
             float yPosEnd = logBtnScreenPos.y + logBtnSize.y - 4.0f;
             ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(xPos, yPos), ImVec2(xPosEnd, yPosEnd), col);

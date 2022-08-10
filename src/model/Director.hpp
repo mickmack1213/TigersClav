@@ -29,6 +29,9 @@ public:
         int64_t tStart_ns_;
         int64_t tEnd_ns_;
         SceneState state_;
+
+        SceneState before_;
+        SceneState after_;
     };
 
     struct Cut
@@ -40,6 +43,7 @@ public:
     void orchestrate(const std::vector<RefereeStateChange>& stateChanges, int64_t duration_ns);
 
     const std::vector<SceneBlock>& getSceneBlocks() const { return sceneBlocks_; }
+    const std::vector<Cut>& getFinalCut() const { return finalCut_; }
 
 private:
     SceneState refStateToSceneState(std::shared_ptr<Referee> pRef) const;
