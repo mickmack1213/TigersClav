@@ -34,7 +34,7 @@ Video::Video(std::string filename)
  runPreloaderThread_(true),
  cacheSize_(50),
  frameDeltaTime_s_(1.0f),
- debug_(false)
+ debug_(true)
 {
     int result;
 
@@ -540,6 +540,34 @@ std::shared_ptr<Video::AVFrameWrapper> Video::readNextFrame()
                     LOG(INFO) << "Video PTS: " << pPacket->pts << ", DTS: " << pPacket->dts << ", size: " << pPacket->size;
 
                 result = avcodec_send_packet(pVideoCodecContext_, pPacket);
+            }
+
+            if(pPacket->stream_index == pAudioStream_->index)
+            {
+                avcodec_send_packet(pAudioCodecContext_, pPacket);
+
+                pWrapper = std::make_shared<Video::AVFrameWrapper>();
+                AVFrame* pFrame = pWrapper->pFrame;
+
+                result = avcodec_receive_frame(pAudioCodecContext_, pFrame);
+                if(result >= 0)
+                {
+                    float pts_s = (float)pFrame->pts * pAudioStream_->time_base.num / pAudioStream_->time_base.den;
+
+                    if(debug_)
+                    {
+                        LOG(INFO) << "- Frame: " << pAudioCodecContext_->frame_number// << ", type: " << av_get_picture_type_char(pFrame->pict_type)
+                                  << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format;
+                    }
+
+        //                for(int i = 0; i < AV_NUM_DATA_POINTERS; i++)
+        //                {
+        //                    if(pFrame->data[i])
+        //                        LOG(INFO) << "Index " << i << " linesize: " << pFrame->linesize[i];
+        //                }
+
+                    return pWrapper;
+                }
             }
         }
 

@@ -56,6 +56,7 @@ add_executable(${PROJECT_NAME}
     
     src/data/SSLGameLog.cpp
     src/data/Video.cpp
+    src/data/MediaSource.cpp
     
     src/gui/ImageComposer.cpp
     src/gui/ScoreBoard.cpp

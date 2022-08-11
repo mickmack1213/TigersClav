@@ -7,6 +7,7 @@
 #include "gui/ScoreBoard.hpp"
 #include "gui/FieldVisualizer.hpp"
 #include "util/ShaderProgram.hpp"
+#include "data/MediaSource.hpp"
 
 class TigersClav : public Application
 {

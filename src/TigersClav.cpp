@@ -240,9 +240,11 @@ void TigersClav::drawProjectPanel()
                         openPath << lastFileOpenPath_;
                         openPath.close();
 
-                        Camera* pCamAdd = reinterpret_cast<Camera*>(ImGuiFileDialog::Instance()->GetUserDatas());
+                        MediaSource x(ImGuiFileDialog::Instance()->GetFilePathName());
 
-                        pCamAdd->addVideo(ImGuiFileDialog::Instance()->GetFilePathName());
+//                        Camera* pCamAdd = reinterpret_cast<Camera*>(ImGuiFileDialog::Instance()->GetUserDatas());
+//
+//                        pCamAdd->addVideo(ImGuiFileDialog::Instance()->GetFilePathName());
                     }
 
                     ImGuiFileDialog::Instance()->Close();
