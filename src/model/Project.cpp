@@ -206,7 +206,7 @@ void Project::sync()
             Rec rec;
             rec.synced = false;
             rec.tStart_ns = 0;
-            rec.duration_ns = pRec->pVideo_->getDuration_ns();
+            rec.duration_ns = pRec->pVideo_->getDuration_s() * 1e9;
 
             if(pRec->syncMarker_.has_value())
             {

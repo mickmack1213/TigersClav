@@ -7,7 +7,7 @@ VideoRecording::VideoRecording(std::string videoFilename)
 :tStart_ns_(0),
  frontGap_ns_(0)
 {
-    pVideo_ = std::make_shared<Video>(videoFilename);
+    pVideo_ = std::make_shared<MediaSource>(videoFilename);
 }
 
 std::string VideoRecording::getName() const
@@ -29,7 +29,7 @@ int64_t Camera::getTotalDuration_ns() const
 
     for(const auto& pVideo : pVideos_)
     {
-        duration_ns += pVideo->pVideo_->getDuration_ns() + pVideo->frontGap_ns_;
+        duration_ns += (int64_t)(pVideo->pVideo_->getDuration_s() * 1e9) + pVideo->frontGap_ns_;
     }
 
     return duration_ns;
@@ -44,7 +44,7 @@ AVFrame* Camera::getAVFrame(int64_t timestamp_ns)
         const auto pVideo = *iter;
 
         int64_t videoStart = currentOffset_ns + pVideo->frontGap_ns_;
-        int64_t videoEnd = videoStart + pVideo->pVideo_->getDuration_ns();
+        int64_t videoEnd = videoStart + pVideo->pVideo_->getDuration_s() * 1e9;
 
         if(videoEnd - timestamp_ns < 1000000000LL && iter != pVideos_.end())
         {
@@ -52,13 +52,15 @@ AVFrame* Camera::getAVFrame(int64_t timestamp_ns)
             copy++;
 
             if(copy != pVideos_.end())
-                (*copy)->pVideo_->getFrame(0);
+                (*copy)->pVideo_->seekTo(0);
         }
 
         if(timestamp_ns >= videoStart && timestamp_ns < videoEnd)
         {
-            lastCacheLevels_ = pVideo->pVideo_->getCacheLevels();
-            return pVideo->pVideo_->getFrameByTime(timestamp_ns - videoStart);
+            pVideo->pVideo_->seekTo((timestamp_ns - videoStart) * 1e-9);
+            auto pMediaFrame = pVideo->pVideo_->get();
+            if(pMediaFrame)
+                return *pMediaFrame->pImage;
         }
 
         currentOffset_ns = videoEnd;
@@ -85,7 +87,6 @@ void Camera::addVideo(std::string name)
     }
 
     std::shared_ptr<VideoRecording> pRec = std::make_shared<VideoRecording>(name);
-//    pRec->frontGap_ns_ = 10*1e9; // TODO: testing
 
     if(pRec->pVideo_->isLoaded())
         pVideos_.emplace_back(pRec);

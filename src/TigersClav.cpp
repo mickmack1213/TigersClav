@@ -240,11 +240,9 @@ void TigersClav::drawProjectPanel()
                         openPath << lastFileOpenPath_;
                         openPath.close();
 
-                        MediaSource x(ImGuiFileDialog::Instance()->GetFilePathName());
+                        Camera* pCamAdd = reinterpret_cast<Camera*>(ImGuiFileDialog::Instance()->GetUserDatas());
 
-//                        Camera* pCamAdd = reinterpret_cast<Camera*>(ImGuiFileDialog::Instance()->GetUserDatas());
-//
-//                        pCamAdd->addVideo(ImGuiFileDialog::Instance()->GetFilePathName());
+                        pCamAdd->addVideo(ImGuiFileDialog::Instance()->GetFilePathName());
                     }
 
                     ImGuiFileDialog::Instance()->Close();
@@ -434,7 +432,7 @@ void TigersClav::drawSyncPanel()
             ImGui::SameLine(0.0f, 0.0f);
 
             ImVec2 btnScreenPos = ImGui::GetCursorScreenPos();
-            if(ImGui::Button(pRecording->getName().c_str(), ImVec2(pRecording->pVideo_->getDuration_ns() * scaleX, heightCamera)))
+            if(ImGui::Button(pRecording->getName().c_str(), ImVec2(pRecording->pVideo_->getDuration_s() * 1e9 * scaleX, heightCamera)))
             {
                 recordingIndex_ = recordingIndex;
                 recordingAutoPlay_ = false;
@@ -450,7 +448,7 @@ void TigersClav::drawSyncPanel()
 
             if(pRecording->syncMarker_.has_value())
             {
-                float xPos = btnScreenPos.x + btnSize.x * (double)pRecording->syncMarker_->timestamp_ns/(double)pRecording->pVideo_->getDuration_ns();
+                float xPos = btnScreenPos.x + btnSize.x * (double)pRecording->syncMarker_->timestamp_ns/(pRecording->pVideo_->getDuration_s()*1e9);
                 float yPos = btnScreenPos.y - 1.0f;
                 ImGui::GetWindowDrawList()->AddLine(ImVec2(xPos, yPos), ImVec2(xPos, yPos+btnSize.y), 0xFF00FF00, 2.0f);
             }
@@ -716,7 +714,7 @@ void TigersClav::drawVideoPanel()
                     auto bufIter = bufferedRecordingTimes_.find(recordings.at(iRec).first);
                     if(bufIter != bufferedRecordingTimes_.end())
                     {
-                        if(bufIter->second >= 0.0f && bufIter->second <= recordings[iRec].second->pVideo_->getDuration_ns()*1e-9)
+                        if(bufIter->second >= 0.0f && bufIter->second <= recordings[iRec].second->pVideo_->getDuration_s())
                         {
                             recordingTime_s_ = bufIter->second;
                         }
@@ -749,15 +747,9 @@ void TigersClav::drawVideoPanel()
         bufferedRecordingTimes_[recordings.at(recordingIndex_).first] = recordingTime_s_;
 
         std::shared_ptr<VideoRecording> pRecording = recordings.at(recordingIndex_).second;
-        std::shared_ptr<Video> pVideo = pRecording->pVideo_;
+        std::shared_ptr<MediaSource> pVideo = pRecording->pVideo_;
 
-        Video::CacheLevels cacheLevels = pVideo->getCacheLevels();
-
-        cacheLevelBuffer_.push_back(cacheLevels);
-        while(cacheLevelBuffer_.size() > 200)
-            cacheLevelBuffer_.pop_front();
-
-        float tMax_s = pVideo->getDuration_ns() * 1e-9f;
+        float tMax_s = pVideo->getDuration_s();
         float dt_s = pVideo->getFrameDeltaTime();
 
         float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
@@ -797,8 +789,7 @@ void TigersClav::drawVideoPanel()
 
         if(recordingAutoPlay_)
         {
-//            if(pCamera->getLastCacheLevels().after > 0.33f)
-                recordingTime_s_ += ImGui::GetIO().DeltaTime;
+            recordingTime_s_ += ImGui::GetIO().DeltaTime;
 
             if(ImGui::Button("Pause", ImVec2(50, 0)))
             {
@@ -890,28 +881,18 @@ void TigersClav::drawVideoPanel()
         }
 
         // Video cache drawing
-        std::vector<float> before;
-        std::vector<float> after;
-
-        for(Video::CacheLevels levels : cacheLevelBuffer_)
-        {
-            before.push_back(levels.before);
-            after.push_back(levels.after);
-        }
+        MediaCachedDuration cache = pVideo->getCachedDuration();
 
         char beforeText[16];
         char afterText[16];
 
-        snprintf(beforeText, sizeof(beforeText), "%.0f%%", cacheLevels.before*100.0f);
-        snprintf(afterText, sizeof(afterText), "%.0f%%", cacheLevels.after*100.0f);
+        snprintf(beforeText, sizeof(beforeText), "%.0f%%", cache.video_s[0]);
+        snprintf(afterText, sizeof(afterText), "%.0f%%", cache.video_s[1]);
 
         ImGui::Separator();
         ImGui::AlignTextToFramePadding();
-        ImGui::Text("Frame Cache:");
-        ImGui::SameLine(120.0f);
-        ImGui::PlotLines("##Cache before", before.data(), before.size(), 0, beforeText, 0.0f, 1.0f, ImVec2((regionAvail.x - 120.0f)*0.5f, ImGui::GetFrameHeight()));
-        ImGui::SameLine();
-        ImGui::PlotLines("##Cache after", after.data(), after.size(), 0, afterText, 0.0f, 1.0f, ImVec2((regionAvail.x - 120.0f)*0.5f, ImGui::GetFrameHeight()));
+        ImGui::Text("Video Cache: %.3fs <=> %.3fs", cache.video_s[0], cache.video_s[1]);
+        ImGui::Text("Audio Cache: %.3fs <=> %.3fs", cache.audio_s[0], cache.audio_s[1]);
 
         // Play logic and finally frame drawing
         if(recordingTime_s_ > tMax_s)
@@ -920,9 +901,10 @@ void TigersClav::drawVideoPanel()
             recordingAutoPlay_ = false;
         }
 
-        AVFrame* pFrame = pVideo->getFrameByTime(recordingTime_s_ * 1e9);
-        if(pFrame)
-            pImageComposer_->drawVideoFrameRGB(pFrame);
+        pVideo->seekTo(recordingTime_s_);
+        auto pMediaFrame = pVideo->get();
+        if(pMediaFrame)
+            pImageComposer_->drawVideoFrameRGB(*pMediaFrame->pImage);
     }
 
     pImageComposer_->end();

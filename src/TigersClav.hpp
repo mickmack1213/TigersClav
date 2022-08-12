@@ -44,8 +44,6 @@ private:
     char camNameBuf_[128];
     char markerNameBuf_[128];
 
-    std::deque<Video::CacheLevels> cacheLevelBuffer_;
-
     GLuint scoreBoardTexture_;
     GLuint fieldVisualizerTexture_;
 };

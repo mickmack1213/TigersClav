@@ -1,7 +1,7 @@
 #pragma once
 
 #include "SyncMarker.hpp"
-#include "data/Video.hpp"
+#include "data/MediaSource.hpp"
 #include <optional>
 #include <vector>
 
@@ -12,7 +12,7 @@ public:
 
     std::string getName() const;
 
-    std::shared_ptr<Video> pVideo_;
+    std::shared_ptr<MediaSource> pVideo_;
     std::optional<SyncMarker> syncMarker_;
 
     int64_t tStart_ns_; // gamelog t=0 to video t=0
@@ -28,8 +28,6 @@ public:
     int64_t getTotalDuration_ns() const;
     AVFrame* getAVFrame(int64_t timestamp_ns);
 
-    const Video::CacheLevels& getLastCacheLevels() const { return lastCacheLevels_; }
-
     float getFrameDeltaTime() const;
 
     void addVideo(std::string name);
@@ -39,6 +37,4 @@ public:
 private:
     std::string name_;
     std::vector<std::shared_ptr<VideoRecording>> pVideos_;
-
-    Video::CacheLevels lastCacheLevels_;
 };

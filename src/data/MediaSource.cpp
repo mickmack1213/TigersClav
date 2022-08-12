@@ -4,9 +4,13 @@
 
 
 MediaSource::MediaSource(std::string filename)
+:lastRequestTime_s_(0.0),
+ debug_(false),
+ isLoaded_(false),
+ filename_(filename),
+ runPreloaderThread_(true),
+ reachedEndOfFile_(false)
 {
-    debug_ = true;
-
     int result;
 
     LOG(INFO) << "Trying to load media container: " << filename;
@@ -41,14 +45,14 @@ MediaSource::MediaSource(std::string filename)
 
     float frameRate = (float)pVideoStream_->r_frame_rate.num / pVideoStream_->r_frame_rate.den;
     float duration_s = (float)pVideoStream_->duration * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
-//    frameDeltaTime_s_ = 1.0f/frameRate;
 
     LOG(INFO) << "Codec: " << pVideoCodec_->name << ", bitrate: " << pVideoCodecPars->bit_rate;
     LOG(INFO) << "Duration: " << std::setprecision(6) << duration_s << " (" << pVideoStream_->duration << "), startTime: " << pVideoStream_->start_time << "pts";
     LOG(INFO) << "Time base: " << pVideoStream_->time_base.num << "/" << pVideoStream_->time_base.den << ", framerate: " << pVideoStream_->r_frame_rate.num << "/" << pVideoStream_->r_frame_rate.den;
     LOG(INFO) << "Video resolution: " << pVideoCodecPars->width << "x" << pVideoCodecPars->height << " @ " << std::setprecision(4) << frameRate << "fps";
 
-//    videoPtsIncrement_ = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
+    videoFrameDeltaTime_s_ = (double)pVideoStream_->r_frame_rate.den / (double)pVideoStream_->r_frame_rate.num;
+    videoPtsInc_ = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
 
 //    LOG(INFO) << "PTS inc: " << videoPtsIncrement_ << ", last frame: " << pVideoStream_->duration / videoPtsIncrement_;
 
@@ -125,34 +129,284 @@ MediaSource::MediaSource(std::string filename)
     LOG(INFO) << "Duration: " << std::setprecision(6) << duration_s << ", startTime: " << pAudioStream_->start_time << "pts";
     LOG(INFO) << "Time base: " << pAudioStream_->time_base.num << "/" << pAudioStream_->time_base.den;
 
-    updateCache(); // TODO: testing
+    audioPtsInc_ = pAudioStream_->time_base.den / (pAudioStream_->time_base.num * pAudioCodecContext_->sample_rate);
+
+    preloaderThread_ = std::thread(preloader, this);
+
+    isLoaded_ = true;
 }
 
 MediaSource::~MediaSource()
 {
+    runPreloaderThread_ = false;
+    preloadCondition_.notify_one();
+
+    if(preloaderThread_.joinable())
+        preloaderThread_.join();
+
+    if(pFormatContext_)
+        avformat_close_input(&pFormatContext_);
+
+    if(pVideoCodecContext_)
+        avcodec_free_context(&pVideoCodecContext_);
+
+    if(pAudioCodecContext_)
+        avcodec_free_context(&pAudioCodecContext_);
 }
 
-void MediaSource::updateCache()
+double MediaSource::getDuration_s() const
+{
+    return videoPtsToSeconds(pVideoStream_->duration);
+}
+
+void MediaSource::seekTo(double time_s)
+{
+    double tMax = getDuration_s() - videoFrameDeltaTime_s_;
+    time_s = std::min(tMax, time_s);
+    time_s = std::max(0.0, time_s);
+
+    lastRequestTime_s_ = time_s;
+    preloadCondition_.notify_one();
+}
+
+void MediaSource::seekToNext()
+{
+    seekTo(videoPtsToSeconds(videoSecondsToPts(lastRequestTime_s_) + videoPtsInc_));
+}
+
+void MediaSource::seekToPrevious()
+{
+    seekTo(videoPtsToSeconds(videoSecondsToPts(lastRequestTime_s_) - videoPtsInc_));
+}
+
+std::shared_ptr<MediaFrame> MediaSource::get()
+{
+    auto pMediaFrame = std::make_shared<MediaFrame>();
+
+    int64_t requestPts = videoSecondsToPts(lastRequestTime_s_);
+    requestPts = ((requestPts + videoPtsInc_/2)/videoPtsInc_) * videoPtsInc_;
+
+    {
+        std::lock_guard<std::mutex> lock(videoSamplesMutex_);
+
+        const auto& iterVideo = videoSamples_.lower_bound(requestPts);
+        if(iterVideo == videoSamples_.end())
+            return nullptr;
+
+        pMediaFrame->pImage = iterVideo->second;
+    }
+
+    double tRequest_s = videoPtsToSeconds(requestPts);
+
+    int64_t audioPtsMin = audioSecondsToPts(tRequest_s);
+    int64_t audioPtsMax = audioSecondsToPts(tRequest_s + videoFrameDeltaTime_s_) - audioPtsInc_;
+
+    {
+        std::lock_guard<std::mutex> lock(audioSamplesMutex_);
+
+        const auto& iterAudioMin = audioSamples_.lower_bound(audioPtsMin);
+        const auto& iterAudioMax = audioSamples_.lower_bound(audioPtsMax);
+
+        if(iterAudioMin == audioSamples_.end())
+            return nullptr;
+
+        const size_t numAudioSamples = std::distance(iterAudioMin, iterAudioMax);
+        const int bytesPerSample = av_get_bytes_per_sample(pAudioCodecContext_->sample_fmt);
+        const int numChannels = pAudioStream_->codecpar->channels;
+
+        pMediaFrame->audioChannels = numChannels;
+        pMediaFrame->audioFormat = av_get_packed_sample_fmt(pAudioCodecContext_->sample_fmt);
+        pMediaFrame->audioSampleRate = pAudioCodecContext_->sample_rate;
+        pMediaFrame->audioSamples = numAudioSamples;
+        pMediaFrame->audioData.resize(numAudioSamples * bytesPerSample * numChannels);
+
+        auto iter = iterAudioMin;
+        for(size_t iSample = 0; iSample < numAudioSamples; iSample++)
+        {
+            memcpy(pMediaFrame->audioData.data() + iSample*bytesPerSample*numChannels, iter->second.data(), bytesPerSample*numChannels);
+            iter++;
+        }
+    }
+
+    return pMediaFrame;
+}
+
+std::list<std::string> MediaSource::getFileDetails() const
+{
+    std::list<std::string> details;
+
+    if(!isLoaded_)
+        return details;
+
+    std::stringstream ss;
+
+    float frameRate = (float)pVideoStream_->r_frame_rate.num / pVideoStream_->r_frame_rate.den;
+    float duration_s = (float)pVideoStream_->duration * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
+
+    ss << "Duration: " << std::setprecision(6) << duration_s << "s";
+    details.push_back(ss.str());
+    ss.str("");
+    ss.clear();
+
+    ss << "Video resolution: " << pVideoStream_->codecpar->width << "x" << pVideoStream_->codecpar->height << " @ " << std::fixed << std::setprecision(2) << frameRate << "fps";
+    details.push_back(ss.str());
+    ss.str("");
+    ss.clear();
+
+    ss << "Video Codec: " << pVideoCodec_->name << ", bitrate: " << std::fixed << std::setprecision(2) << pVideoStream_->codecpar->bit_rate * 1e-6 << "MBit/s";
+    details.push_back(ss.str());
+    ss.str("");
+    ss.clear();
+
+    return details;
+}
+
+void MediaSource::preloader()
+{
+    int result;
+
+    while(runPreloaderThread_)
+    {
+        std::unique_lock<std::mutex> lock(preloadMutex_);
+        preloadCondition_.wait(lock);
+
+        if(!runPreloaderThread_)
+            return;
+
+        updateCache(lastRequestTime_s_);
+    }
+}
+
+MediaCachedDuration MediaSource::getCachedDuration() const
+{
+    MediaCachedDuration cache { 0 };
+    double requestTime_s = lastRequestTime_s_;
+
+    if(!videoSamples_.empty())
+    {
+        cache.video_s[0] = std::max(0.0, requestTime_s - videoPtsToSeconds(videoSamples_.begin()->first));
+        cache.video_s[1] = std::max(0.0, videoPtsToSeconds(videoSamples_.rbegin()->first) - requestTime_s);
+    }
+
+    if(!audioSamples_.empty())
+    {
+        cache.audio_s[0] = std::max(0.0, requestTime_s - audioPtsToSeconds(audioSamples_.begin()->first));
+        cache.audio_s[1] = std::max(0.0, audioPtsToSeconds(audioSamples_.rbegin()->first) - requestTime_s);
+    }
+
+    return cache;
+}
+
+void MediaSource::updateCache(double requestTime_s)
 {
     int result;
     AVPacketWrapper pPacket;
 
-    while(lastCachedTime_ < lastRequestedTime_ + 1.0)
+    std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> audioData = nullptr;
+    std::shared_ptr<AVFrameWrapper> videoData = nullptr;
+
+    const double bufferTime_s = 0.5;
+
+    const bool invalidRequestTime = requestTime_s < 0.0 || requestTime_s >= videoPtsToSeconds(pVideoStream_->duration);
+    if(invalidRequestTime)
+        return;
+
+    double cachedTimesVideo_s[2] = { 0.0, 0.0 };
+    double cachedTimesAudio_s[2] = { 0.0, 0.0 };
+
+    if(!videoSamples_.empty())
+    {
+        cachedTimesVideo_s[0] = videoPtsToSeconds(videoSamples_.begin()->first);
+        cachedTimesVideo_s[1] = videoPtsToSeconds(videoSamples_.rbegin()->first);
+    }
+
+    if(!audioSamples_.empty())
+    {
+        cachedTimesAudio_s[0] = audioPtsToSeconds(audioSamples_.begin()->first);
+        cachedTimesAudio_s[1] = audioPtsToSeconds(audioSamples_.rbegin()->first);
+    }
+
+    const bool requestOutsideVideoCache = requestTime_s < cachedTimesVideo_s[0] || requestTime_s > cachedTimesVideo_s[1];
+    const bool requestOutsideAudioCache = requestTime_s < cachedTimesAudio_s[0] || requestTime_s > cachedTimesAudio_s[1] - videoFrameDeltaTime_s_;
+
+    if(requestOutsideVideoCache || requestOutsideAudioCache)
+    {
+        // Seeking required
+        LOG_IF(debug_, INFO) << "Seeking to: " << requestTime_s;
+
+        reachedEndOfFile_ = false;
+
+        {
+            std::lock_guard<std::mutex> videoLock(videoSamplesMutex_);
+            videoSamples_.clear();
+        }
+
+        {
+            std::lock_guard<std::mutex> audioLock(audioSamplesMutex_);
+            audioSamples_.clear();
+        }
+
+        while(processVideoFrame(0));
+        while(processAudioFrame(0));
+
+        double seekTime_s = std::max(0.0, requestTime_s - bufferTime_s*0.5);
+
+        LOG_IF(debug_, INFO) << "Seek time: " << seekTime_s;
+
+        av_seek_frame(pFormatContext_, pVideoStream_->index, videoSecondsToPts(seekTime_s), AVSEEK_FLAG_BACKWARD);
+
+        fillCache(requestTime_s, requestTime_s + bufferTime_s);
+
+        if(videoSamples_.empty() || audioSamples_.empty())
+        {
+            LOG_IF(debug_, INFO) << "Missing data, seeking via audio stream.";
+
+            av_seek_frame(pFormatContext_, pAudioStream_->index, audioSecondsToPts(seekTime_s), AVSEEK_FLAG_BACKWARD);
+
+            fillCache(requestTime_s, requestTime_s + bufferTime_s);
+        }
+    }
+    else
+    {
+        // values are in cache
+        fillCache(requestTime_s, requestTime_s + bufferTime_s);
+        cleanCache(std::max(0.0, requestTime_s - bufferTime_s));
+    }
+}
+
+void MediaSource::fillCache(double tFirst_s, double tLast_s)
+{
+    int result;
+    AVPacketWrapper pPacket;
+
+    std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> audioData = nullptr;
+    std::shared_ptr<AVFrameWrapper> videoData = nullptr;
+
+    double tVideoCacheLast_s = 0.0;
+    double tAudioCacheLast_s = 0.0;
+
+    if(!videoSamples_.empty())
+        tVideoCacheLast_s = videoPtsToSeconds(videoSamples_.rbegin()->first);
+
+    if(!audioSamples_.empty())
+        tAudioCacheLast_s = audioPtsToSeconds(audioSamples_.rbegin()->first);
+
+    while((tVideoCacheLast_s < tLast_s || tAudioCacheLast_s < tLast_s) && !reachedEndOfFile_)
     {
         av_packet_unref(pPacket);
 
         result = av_read_frame(pFormatContext_, pPacket);
         if(result == AVERROR_EOF)
         {
-            if(debug_)
-                LOG(INFO) << "EOF. Flushing video codec.";
+            LOG_IF(debug_, INFO) << "EOF. Flushing codecs.";
 
-//            result = avcodec_send_packet(pVideoCodecContext_, 0);
+            videoData = processVideoFrame(0);
+            audioData = processAudioFrame(0);
+            reachedEndOfFile_ = true;
         }
         else if(result < 0)
         {
-            if(debug_)
-                LOG(INFO) << "av_read_frame: " << err2str(result);
+            LOG_IF(debug_, INFO) << "av_read_frame: " << err2str(result);
 
             return;
         }
@@ -160,87 +414,207 @@ void MediaSource::updateCache()
         {
             if(pPacket->stream_index == pVideoStream_->index)
             {
-                if(debug_)
-                    LOG(INFO) << "Video PTS: " << pPacket->pts << ", DTS: " << pPacket->dts << ", size: " << pPacket->size;
-
-                result = avcodec_send_packet(pVideoCodecContext_, pPacket);
-                if(result < 0)
-                {
-                    if(debug_)
-                        LOG(ERROR) << "Error in avcodec_send_packet (video): " << err2str(result);
-
-                    avcodec_flush_buffers(pVideoCodecContext_);
-                    return;
-                }
-
-                AVFrameWrapper pFrame;
-                result = avcodec_receive_frame(pVideoCodecContext_, pFrame);
-                if(result >= 0)
-                {
-                    float pts_s = (float)pFrame->pts * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
-
-                    lastCachedTime_ = pts_s;
-
-                    if(debug_)
-                    {
-                        LOG(INFO) << "Video Frame: " << pVideoCodecContext_->frame_number << ", type: " << av_get_picture_type_char(pFrame->pict_type)
-                                  << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format;
-                    }
-
-//                    return pWrapper;
-                }
-                else if(result == AVERROR(EAGAIN))
-                {
-                    continue;
-                }
-                else
-                {
-                    if(debug_)
-                        LOG(ERROR) << "avcodec_receive_frame result: " << err2str(result);
-
-                    avcodec_flush_buffers(pVideoCodecContext_);
-                    return;
-                }
+                videoData = processVideoFrame(pPacket);
             }
 
             if(pPacket->stream_index == pAudioStream_->index)
             {
-                result = avcodec_send_packet(pAudioCodecContext_, pPacket);
-                if(result < 0)
-                {
-                    if(debug_)
-                        LOG(ERROR) << "Error in avcodec_send_packet (audio): " << err2str(result);
-
-                    avcodec_flush_buffers(pAudioCodecContext_);
-                    return;
-                }
-
-                AVFrameWrapper pFrame;
-                result = avcodec_receive_frame(pAudioCodecContext_, pFrame);
-                if(result >= 0)
-                {
-                    float pts_s = (float)pFrame->pts * pAudioStream_->time_base.num / pAudioStream_->time_base.den;
-
-                    if(debug_)
-                    {
-                        LOG(INFO) << "Audio Frame: " << pAudioCodecContext_->frame_number// << ", type: " << av_get_picture_type_char(pFrame->pict_type)
-                                  << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format
-                                  << ", linesize0: " << pFrame->linesize[0] << ", linesize1: " << pFrame->linesize[1]
-                                  << ", data0: " << std::hex << (int64_t)pFrame->data[0] << ", data1: " << (int64_t)pFrame->data[1] << ", data2: " << (int64_t)pFrame->data[2] << std::dec
-                                  << ", samples: " << pFrame->nb_samples;
-                    }
-
-        //                for(int i = 0; i < AV_NUM_DATA_POINTERS; i++)
-        //                {
-        //                    if(pFrame->data[i])
-        //                        LOG(INFO) << "Index " << i << " linesize: " << pFrame->linesize[i];
-        //                }
-
-//                    return pWrapper;
-                }
+                audioData = processAudioFrame(pPacket);
             }
         }
+
+        if(videoData)
+        {
+            const double tVideo_s = videoPtsToSeconds((*videoData)->pts);
+
+            if(videoSamples_.empty() && tVideo_s > tFirst_s)
+            {
+                LOG_IF(debug_, INFO) << "First video sample (" << tVideo_s << ") after required time (" << tFirst_s << ")";
+
+                return;
+            }
+
+            {
+                std::lock_guard<std::mutex> videoLock(videoSamplesMutex_);
+                videoSamples_[(*videoData)->pts] = videoData;
+            }
+
+            tVideoCacheLast_s = videoPtsToSeconds(videoSamples_.rbegin()->first);
+        }
+
+        if(audioData && !audioData->empty())
+        {
+            const double tFirstAudio_s = audioPtsToSeconds(audioData->begin()->first);
+
+            if(audioSamples_.empty() && tFirstAudio_s > tFirst_s)
+            {
+                LOG_IF(debug_, INFO) << "First audio sample (" << tFirstAudio_s << ") after required time (" << tFirst_s << ")";
+
+                return;
+            }
+
+            {
+                std::lock_guard<std::mutex> audioLock(audioSamplesMutex_);
+                audioSamples_.insert(audioData->begin(), audioData->end());
+            }
+
+            tAudioCacheLast_s = audioPtsToSeconds(audioSamples_.rbegin()->first);
+        }
     }
+}
+
+void MediaSource::cleanCache(double tOld_s)
+{
+    const int64_t tVideoPtsOld = videoSecondsToPts(tOld_s);
+    const int64_t tAudioPtsOld = audioSecondsToPts(tOld_s);
+
+    {
+        std::lock_guard<std::mutex> videoLock(videoSamplesMutex_);
+        const auto& iterVideoMinLimit = videoSamples_.lower_bound(tVideoPtsOld);
+        if(iterVideoMinLimit != videoSamples_.end())
+            videoSamples_.erase(videoSamples_.begin(), iterVideoMinLimit);
+    }
+
+    {
+        std::lock_guard<std::mutex> audioLock(audioSamplesMutex_);
+        const auto& iterAudioMinLimit = audioSamples_.lower_bound(tAudioPtsOld);
+        if(iterAudioMinLimit != audioSamples_.end())
+            audioSamples_.erase(audioSamples_.begin(), iterAudioMinLimit);
+    }
+}
+
+std::shared_ptr<AVFrameWrapper> MediaSource::processVideoFrame(AVPacket* pPacket)
+{
+    int result;
+
+    result = avcodec_send_packet(pVideoCodecContext_, pPacket);
+    if(result < 0)
+    {
+        LOG_IF(debug_, ERROR) << "Error in avcodec_send_packet (video): " << err2str(result);
+
+        avcodec_flush_buffers(pVideoCodecContext_);
+        return nullptr;
+    }
+
+    auto pWrapper = std::make_shared<AVFrameWrapper>();
+    AVFrame* pFrame = *pWrapper;
+    result = avcodec_receive_frame(pVideoCodecContext_, pFrame);
+    if(result >= 0)
+    {
+        float pts_s = (float)pFrame->pts * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
+
+        LOG_IF(debug_, INFO) << "Video Frame: " << pVideoCodecContext_->frame_number << ", type: " << av_get_picture_type_char(pFrame->pict_type)
+                             << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format;
+
+        return pWrapper;
+    }
+    else if(result == AVERROR(EAGAIN))
+    {
+        return nullptr;
+    }
+    else
+    {
+        LOG_IF(debug_, ERROR) << "avcodec_receive_frame (video) result: " << err2str(result);
+
+        avcodec_flush_buffers(pVideoCodecContext_);
+        return nullptr;
+    }
+}
+
+std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> MediaSource::processAudioFrame(AVPacket* pPacket)
+{
+    int result;
+
+    result = avcodec_send_packet(pAudioCodecContext_, pPacket);
+    if(result < 0)
+    {
+        LOG_IF(debug_, ERROR) << "Error in avcodec_send_packet (audio): " << err2str(result);
+
+        avcodec_flush_buffers(pAudioCodecContext_);
+        return nullptr;
+    }
+
+    AVFrameWrapper pFrame;
+    result = avcodec_receive_frame(pAudioCodecContext_, pFrame);
+    if(result >= 0)
+    {
+        float pts_s = (float)pFrame->pts * pAudioStream_->time_base.num / pAudioStream_->time_base.den;
+
+        LOG_IF(debug_, INFO) << "Audio Frame: " << pAudioCodecContext_->frame_number// << ", type: " << av_get_picture_type_char(pFrame->pict_type)
+                             << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format
+                             << ", linesize0: " << pFrame->linesize[0] << ", linesize1: " << pFrame->linesize[1]
+                             << ", data0: " << std::hex << (int64_t)pFrame->data[0] << ", data1: " << (int64_t)pFrame->data[1] << ", data2: " << (int64_t)pFrame->data[2] << std::dec
+                             << ", samples: " << pFrame->nb_samples;
+
+        auto pSamples = std::make_shared<std::map<int64_t, std::vector<uint8_t>>>();
+        const int bytesPerSample = av_get_bytes_per_sample(static_cast<enum AVSampleFormat>(pFrame->format));
+        const int numChannels = pAudioStream_->codecpar->channels;
+        const int dataSize = bytesPerSample * numChannels;
+
+        int64_t pts = pFrame->pts;
+
+        if(av_sample_fmt_is_planar(static_cast<enum AVSampleFormat>(pFrame->format)))
+        {
+            // separate channel data, one channel per pFrame->data[x]
+            for(int iSample = 0; iSample < pFrame->nb_samples; iSample++)
+            {
+                std::vector<uint8_t> data(dataSize);
+
+                for(int iChannel = 0; iChannel < numChannels; iChannel++)
+                {
+                    memcpy(data.data() + iChannel*bytesPerSample, pFrame->data[iChannel] + iSample*bytesPerSample, bytesPerSample);
+                }
+
+                pSamples->emplace(pts, std::move(data));
+                pts++;
+            }
+        }
+        else
+        {
+            // channel data is interleaved in pFrame->data[0]
+            for(int iSample = 0; iSample < pFrame->nb_samples; iSample++)
+            {
+                std::vector<uint8_t> data(dataSize);
+
+                memcpy(data.data(), pFrame->data[0] + iSample*dataSize, dataSize);
+
+                pSamples->emplace(pts, std::move(data));
+                pts++;
+            }
+        }
+
+        return pSamples;
+    }
+    else
+    {
+        LOG_IF(debug_, ERROR) << "avcodec_receive_frame (audio) result: " << err2str(result);
+
+        avcodec_flush_buffers(pAudioCodecContext_);
+        return nullptr;
+    }
+
+    return nullptr;
+}
+
+
+double MediaSource::videoPtsToSeconds(int64_t pts) const
+{
+    return (double)pts * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
+}
+
+int64_t MediaSource::videoSecondsToPts(double seconds) const
+{
+    return (int64_t)(seconds * pVideoStream_->time_base.den / pVideoStream_->time_base.num);
+}
+
+double MediaSource::audioPtsToSeconds(int64_t pts) const
+{
+    return (double)pts * pAudioStream_->time_base.num / pAudioStream_->time_base.den;
+}
+
+int64_t MediaSource::audioSecondsToPts(double seconds) const
+{
+    return (int64_t)(seconds * pAudioStream_->time_base.den / pAudioStream_->time_base.num);
 }
 
 std::string MediaSource::err2str(int errnum)
