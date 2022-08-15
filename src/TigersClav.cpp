@@ -1,7 +1,9 @@
 #include "TigersClav.hpp"
 #include "ImGuiFileDialog.h"
 #include "LogViewer.hpp"
+#include "data/MediaEncoder.hpp"
 #include <filesystem>
+#include <chrono>
 
 TigersClav::TigersClav()
 :lastFileOpenPath_("."),
@@ -277,6 +279,39 @@ void TigersClav::drawProjectPanel()
                     ImGui::EndPopup();
                 }
 
+                // Save cut video logic
+                if(pCam->getTotalDuration_ns() > 0)
+                {
+                    if(ImGui::Button("Save Cut Video", ImVec2(200.0f, 0.0f)))
+                    {
+                        const auto pVideo = pCam->getVideos().front();
+                        const auto pMedia = pVideo->pVideo_;
+
+                        MediaEncoder enc(pCam->getName() + "-test.mp4");
+
+                        using namespace std::chrono_literals;
+
+                        pMedia->seekTo(0.0);
+                        for(int i = 0; i < 60*10; i++)
+                        {
+                            std::shared_ptr<MediaFrame> pFrame;
+                            do
+                            {
+                                pFrame = pMedia->get();
+                                std::this_thread::sleep_for(1ms);
+                            }
+                            while(!pFrame);
+
+                            if(enc.put(pFrame) < 0)
+                                break;
+
+                            pMedia->seekToNext();
+                        }
+
+                        enc.close();
+                    }
+                }
+
                 ImGui::TreePop();
             }
         }
@@ -428,8 +463,11 @@ void TigersClav::drawSyncPanel()
 
         for(const auto& pRecording : pCamera->getVideos())
         {
-            ImGui::InvisibleButton((pRecording->getName() + "_gap").c_str(), ImVec2(pRecording->frontGap_ns_ * scaleX, heightCamera));
-            ImGui::SameLine(0.0f, 0.0f);
+            if(pRecording->frontGap_ns_ > 0)
+            {
+                ImGui::InvisibleButton((pRecording->getName() + "_gap").c_str(), ImVec2(pRecording->frontGap_ns_ * scaleX, heightCamera));
+                ImGui::SameLine(0.0f, 0.0f);
+            }
 
             ImVec2 btnScreenPos = ImGui::GetCursorScreenPos();
             if(ImGui::Button(pRecording->getName().c_str(), ImVec2(pRecording->pVideo_->getDuration_s() * 1e9 * scaleX, heightCamera)))

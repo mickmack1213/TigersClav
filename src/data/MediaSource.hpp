@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AVWrapper.hpp"
+#include "MediaFrame.hpp"
 
 #include <string>
 #include <thread>
@@ -10,17 +10,6 @@
 #include <list>
 #include <map>
 #include <vector>
-
-struct MediaFrame
-{
-    std::shared_ptr<AVFrameWrapper> pImage;
-
-    AVSampleFormat audioFormat;
-    int audioChannels;
-    int audioSampleRate;
-    int audioSamples;
-    std::vector<uint8_t> audioData;
-};
 
 struct MediaCachedDuration
 {
@@ -63,7 +52,7 @@ private:
     void cleanCache(double tOld_s);
 
     std::shared_ptr<AVFrameWrapper> processVideoFrame(AVPacket* pPacket);
-    std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> processAudioFrame(AVPacket* pPacket);
+    std::shared_ptr<AVFrameWrapper> processAudioFrame(AVPacket* pPacket);
 
     bool debug_;
     bool isLoaded_;
@@ -86,7 +75,7 @@ private:
     std::map<int64_t, std::shared_ptr<AVFrameWrapper>> videoSamples_;
 
     std::mutex audioSamplesMutex_;
-    std::map<int64_t, std::vector<uint8_t>> audioSamples_;
+    std::map<int64_t, std::shared_ptr<AVFrameWrapper>> audioSamples_;
 
     int64_t audioPtsInc_;
     int64_t videoPtsInc_;

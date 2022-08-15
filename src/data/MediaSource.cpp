@@ -13,7 +13,7 @@ MediaSource::MediaSource(std::string filename)
 {
     int result;
 
-    LOG(INFO) << "Trying to load media container: " << filename;
+    LOG(INFO) << "Trying to load media source: " << filename;
 
     // Open container format
     pFormatContext_ = avformat_alloc_context();
@@ -53,8 +53,6 @@ MediaSource::MediaSource(std::string filename)
 
     videoFrameDeltaTime_s_ = (double)pVideoStream_->r_frame_rate.den / (double)pVideoStream_->r_frame_rate.num;
     videoPtsInc_ = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
-
-//    LOG(INFO) << "PTS inc: " << videoPtsIncrement_ << ", last frame: " << pVideoStream_->duration / videoPtsIncrement_;
 
     int dictEntries = av_dict_count(pVideoStream_->metadata);
 
@@ -181,7 +179,14 @@ void MediaSource::seekToPrevious()
 
 std::shared_ptr<MediaFrame> MediaSource::get()
 {
+    int result;
+
     auto pMediaFrame = std::make_shared<MediaFrame>();
+
+    pMediaFrame->videoTimeBase = pVideoStream_->time_base;
+    pMediaFrame->videoFramerate = pVideoStream_->r_frame_rate;
+    pMediaFrame->videoCodec = pVideoCodecContext_->codec_id;
+    pMediaFrame->videoBitRate = pVideoCodecContext_->bit_rate;
 
     int64_t requestPts = videoSecondsToPts(lastRequestTime_s_);
     requestPts = ((requestPts + videoPtsInc_/2)/videoPtsInc_) * videoPtsInc_;
@@ -196,36 +201,67 @@ std::shared_ptr<MediaFrame> MediaSource::get()
         pMediaFrame->pImage = iterVideo->second;
     }
 
+    pMediaFrame->audioTimeBase = pAudioStream_->time_base;
+    pMediaFrame->audioCodec = pAudioCodecContext_->codec_id;
+    pMediaFrame->audioBitRate = pAudioCodecContext_->bit_rate;
+
     double tRequest_s = videoPtsToSeconds(requestPts);
 
     int64_t audioPtsMin = audioSecondsToPts(tRequest_s);
-    int64_t audioPtsMax = audioSecondsToPts(tRequest_s + videoFrameDeltaTime_s_) - audioPtsInc_;
+    int64_t audioPtsMax = audioSecondsToPts(tRequest_s + videoFrameDeltaTime_s_);
 
     {
         std::lock_guard<std::mutex> lock(audioSamplesMutex_);
 
-        const auto& iterAudioMin = audioSamples_.lower_bound(audioPtsMin);
-        const auto& iterAudioMax = audioSamples_.lower_bound(audioPtsMax);
-
+        auto iterAudioMin = audioSamples_.upper_bound(audioPtsMin);
         if(iterAudioMin == audioSamples_.end())
             return nullptr;
 
-        const size_t numAudioSamples = std::distance(iterAudioMin, iterAudioMax);
-        const int bytesPerSample = av_get_bytes_per_sample(pAudioCodecContext_->sample_fmt);
-        const int numChannels = pAudioStream_->codecpar->channels;
+        if(iterAudioMin != audioSamples_.begin())
+            iterAudioMin--;
 
-        pMediaFrame->audioChannels = numChannels;
-        pMediaFrame->audioFormat = av_get_packed_sample_fmt(pAudioCodecContext_->sample_fmt);
-        pMediaFrame->audioSampleRate = pAudioCodecContext_->sample_rate;
-        pMediaFrame->audioSamples = numAudioSamples;
-        pMediaFrame->audioData.resize(numAudioSamples * bytesPerSample * numChannels);
+        const auto iterAudioMax = audioSamples_.lower_bound(audioPtsMax);
 
-        auto iter = iterAudioMin;
-        for(size_t iSample = 0; iSample < numAudioSamples; iSample++)
+        const AVFrame* pFirstSrcFrame = *iterAudioMin->second;
+
+        auto pWrapper = std::make_shared<AVFrameWrapper>();
+        AVFrame* pFrame = *pWrapper;
+
+        pFrame->nb_samples = (audioPtsMax - audioPtsMin) / audioPtsInc_;
+        pFrame->format = pFirstSrcFrame->format;
+        pFrame->sample_rate = pFirstSrcFrame->sample_rate;
+        pFrame->pts = audioPtsMin;
+
+        pFrame->channel_layout = pFirstSrcFrame->channel_layout;
+        if(pFrame->channel_layout == 0)
+            pFrame->channel_layout = av_get_default_channel_layout(pFirstSrcFrame->channels);
+
+        result = av_frame_get_buffer(pFrame, 0);
+        if(result < 0)
         {
-            memcpy(pMediaFrame->audioData.data() + iSample*bytesPerSample*numChannels, iter->second.data(), bytesPerSample*numChannels);
-            iter++;
+            LOG(ERROR) << "No memory for audio frame data: " << err2str(result);
+            return nullptr;
         }
+
+        int samplesLeft = pFrame->nb_samples;
+        int64_t startPts = audioPtsMin;
+        int dstOffset = 0;
+
+        for(auto iter = iterAudioMin; iter != iterAudioMax; iter++)
+        {
+            int srcOffset = (startPts - iter->first) / audioPtsInc_;
+            int copySize = (*iter->second)->nb_samples - srcOffset;
+            if(copySize > samplesLeft)
+                copySize = samplesLeft;
+
+            av_samples_copy(pFrame->data, (*iter->second)->data, dstOffset, srcOffset, copySize, (*iter->second)->channels, (enum AVSampleFormat)pFrame->format);
+
+            samplesLeft -= copySize;
+            dstOffset += copySize;
+            startPts += copySize * audioPtsInc_;
+        }
+
+        pMediaFrame->pSamples = pWrapper;
     }
 
     return pMediaFrame;
@@ -379,7 +415,7 @@ void MediaSource::fillCache(double tFirst_s, double tLast_s)
     int result;
     AVPacketWrapper pPacket;
 
-    std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> audioData = nullptr;
+    std::shared_ptr<AVFrameWrapper> audioData = nullptr;
     std::shared_ptr<AVFrameWrapper> videoData = nullptr;
 
     double tVideoCacheLast_s = 0.0;
@@ -442,9 +478,9 @@ void MediaSource::fillCache(double tFirst_s, double tLast_s)
             tVideoCacheLast_s = videoPtsToSeconds(videoSamples_.rbegin()->first);
         }
 
-        if(audioData && !audioData->empty())
+        if(audioData)
         {
-            const double tFirstAudio_s = audioPtsToSeconds(audioData->begin()->first);
+            const double tFirstAudio_s = audioPtsToSeconds((*audioData)->pts);
 
             if(audioSamples_.empty() && tFirstAudio_s > tFirst_s)
             {
@@ -455,7 +491,7 @@ void MediaSource::fillCache(double tFirst_s, double tLast_s)
 
             {
                 std::lock_guard<std::mutex> audioLock(audioSamplesMutex_);
-                audioSamples_.insert(audioData->begin(), audioData->end());
+                audioSamples_[(*audioData)->pts] = audioData;
             }
 
             tAudioCacheLast_s = audioPtsToSeconds(audioSamples_.rbegin()->first);
@@ -521,7 +557,7 @@ std::shared_ptr<AVFrameWrapper> MediaSource::processVideoFrame(AVPacket* pPacket
     }
 }
 
-std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> MediaSource::processAudioFrame(AVPacket* pPacket)
+std::shared_ptr<AVFrameWrapper> MediaSource::processAudioFrame(AVPacket* pPacket)
 {
     int result;
 
@@ -534,7 +570,8 @@ std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> MediaSource::processAud
         return nullptr;
     }
 
-    AVFrameWrapper pFrame;
+    auto pWrapper = std::make_shared<AVFrameWrapper>();
+    AVFrame* pFrame = *pWrapper;
     result = avcodec_receive_frame(pAudioCodecContext_, pFrame);
     if(result >= 0)
     {
@@ -546,44 +583,11 @@ std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> MediaSource::processAud
                              << ", data0: " << std::hex << (int64_t)pFrame->data[0] << ", data1: " << (int64_t)pFrame->data[1] << ", data2: " << (int64_t)pFrame->data[2] << std::dec
                              << ", samples: " << pFrame->nb_samples;
 
-        auto pSamples = std::make_shared<std::map<int64_t, std::vector<uint8_t>>>();
-        const int bytesPerSample = av_get_bytes_per_sample(static_cast<enum AVSampleFormat>(pFrame->format));
-        const int numChannels = pAudioStream_->codecpar->channels;
-        const int dataSize = bytesPerSample * numChannels;
-
-        int64_t pts = pFrame->pts;
-
-        if(av_sample_fmt_is_planar(static_cast<enum AVSampleFormat>(pFrame->format)))
-        {
-            // separate channel data, one channel per pFrame->data[x]
-            for(int iSample = 0; iSample < pFrame->nb_samples; iSample++)
-            {
-                std::vector<uint8_t> data(dataSize);
-
-                for(int iChannel = 0; iChannel < numChannels; iChannel++)
-                {
-                    memcpy(data.data() + iChannel*bytesPerSample, pFrame->data[iChannel] + iSample*bytesPerSample, bytesPerSample);
-                }
-
-                pSamples->emplace(pts, std::move(data));
-                pts++;
-            }
-        }
-        else
-        {
-            // channel data is interleaved in pFrame->data[0]
-            for(int iSample = 0; iSample < pFrame->nb_samples; iSample++)
-            {
-                std::vector<uint8_t> data(dataSize);
-
-                memcpy(data.data(), pFrame->data[0] + iSample*dataSize, dataSize);
-
-                pSamples->emplace(pts, std::move(data));
-                pts++;
-            }
-        }
-
-        return pSamples;
+        return pWrapper;
+    }
+    else if(result == AVERROR(EAGAIN))
+    {
+        return nullptr;
     }
     else
     {
@@ -592,8 +596,6 @@ std::shared_ptr<std::map<int64_t, std::vector<uint8_t>>> MediaSource::processAud
         avcodec_flush_buffers(pAudioCodecContext_);
         return nullptr;
     }
-
-    return nullptr;
 }
 
 

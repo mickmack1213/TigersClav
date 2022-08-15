@@ -17,7 +17,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(BLEND2D_STATIC TRUE)
 include("blend2d/CMakeLists.txt")
 
-find_package(FFmpeg REQUIRED COMPONENTS AVCODEC AVFORMAT AVUTIL SWSCALE)
+find_package(FFmpeg REQUIRED COMPONENTS AVCODEC AVFORMAT AVUTIL SWSCALE SWRESAMPLE)
 find_package(Protobuf REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -57,6 +57,7 @@ add_executable(${PROJECT_NAME}
     src/data/SSLGameLog.cpp
     src/data/Video.cpp
     src/data/MediaSource.cpp
+    src/data/MediaEncoder.cpp
     
     src/gui/ImageComposer.cpp
     src/gui/ScoreBoard.cpp
