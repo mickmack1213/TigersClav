@@ -20,8 +20,6 @@ public:
         std::shared_ptr<TrackerWrapperPacket> pTracker_;
     };
 
-
-
     GameLog(std::string filename);
 
     int64_t getTotalDuration_ns() const;

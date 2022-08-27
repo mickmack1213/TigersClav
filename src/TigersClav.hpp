@@ -8,6 +8,7 @@
 #include "gui/FieldVisualizer.hpp"
 #include "util/ShaderProgram.hpp"
 #include "data/MediaSource.hpp"
+#include "model/VideoProducer.hpp"
 
 class TigersClav : public Application
 {
@@ -27,6 +28,7 @@ private:
     std::unique_ptr<ImageComposer> pImageComposer_;
     std::unique_ptr<ScoreBoard> pScoreBoard_;
     std::unique_ptr<FieldVisualizer> pFieldVisualizer_;
+    std::unique_ptr<VideoProducer> pVideoProducer_;
 
     std::string lastFileOpenPath_;
 

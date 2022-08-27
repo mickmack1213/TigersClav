@@ -25,6 +25,9 @@ private:
     std::string filename_;
     bool initialized_;
 
+    int64_t curVideoPts_;
+    int64_t curAudioPts_;
+
     AVFormatContext* pFormatContext_;
 
     AVStream* pVideoStream_;

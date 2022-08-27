@@ -181,6 +181,8 @@ std::shared_ptr<MediaFrame> MediaSource::get()
 {
     int result;
 
+    preloadCondition_.notify_one();
+
     auto pMediaFrame = std::make_shared<MediaFrame>();
 
     pMediaFrame->videoTimeBase = pVideoStream_->time_base;

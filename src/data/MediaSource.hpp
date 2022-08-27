@@ -33,6 +33,7 @@ public:
     void seekToNext();
     void seekToPrevious();
     std::shared_ptr<MediaFrame> get();
+    double tell() const { return lastRequestTime_s_; }
 
     MediaCachedDuration getCachedDuration() const;
 

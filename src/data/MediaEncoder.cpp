@@ -16,7 +16,9 @@ MediaEncoder::MediaEncoder(std::string filename)
  pAudioStream_(0),
  pAudioCodec_(0),
  pAudioCodecContext_(0),
- pResampler_(0)
+ pResampler_(0),
+ curVideoPts_(0),
+ curAudioPts_(0)
 {
 }
 
@@ -67,7 +69,8 @@ bool MediaEncoder::initialize(std::shared_ptr<MediaFrame> pFrame)
             return false;
         }
 
-        av_opt_set(pVideoCodecContext_->priv_data, "preset", "slow", 0);
+        av_opt_set(pVideoCodecContext_->priv_data, "preset", "faster", 0);
+        av_opt_set(pVideoCodecContext_->priv_data, "movflags", "faststart", 0);
 
         pVideoCodecContext_->width = pVideo->width;
         pVideoCodecContext_->height = pVideo->height;
@@ -75,7 +78,10 @@ bool MediaEncoder::initialize(std::shared_ptr<MediaFrame> pFrame)
         pVideoCodecContext_->pix_fmt = (enum AVPixelFormat)pVideo->format;
 
         // TODO: make video codec parameters configurable?
-        pVideoCodecContext_->bit_rate = std::min(50 * 1000 * 1000LL, pFrame->videoBitRate);
+        if(pVideo->height < 1200) // 1080p?
+            pVideoCodecContext_->bit_rate = std::min(25 * 1000 * 1000LL, pFrame->videoBitRate);
+        else // or larger (i.e. 4K)?
+            pVideoCodecContext_->bit_rate = std::min(50 * 1000 * 1000LL, pFrame->videoBitRate);
 
         pVideoCodecContext_->time_base = pFrame->videoTimeBase;
         pVideoCodecContext_->framerate = pFrame->videoFramerate;
@@ -158,7 +164,7 @@ bool MediaEncoder::initialize(std::shared_ptr<MediaFrame> pFrame)
         avcodec_parameters_from_context(pAudioStream_->codecpar, pAudioCodecContext_);
 
         LOG(INFO) << "Encoder audio: " << pAudioCodec_->name << ", channels: " << pAudioCodecContext_->channels << ", sample rate: " << pAudioCodecContext_->sample_rate
-                  << ", bit rate: " << pAudioCodecContext_->bit_rate;
+                  << ", bit rate: " << pAudioCodecContext_->bit_rate << ", frame_size: " << pAudioCodecContext_->frame_size;
     }
 
     // Open output file
@@ -250,11 +256,9 @@ int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
         }
     }
 
-    // TODO: do we need custom pts management when copying slices together?
-
     if(pVideoCodecContext_)
     {
-        int videoPtsInc = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
+        int64_t videoPtsInc = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
 
         AVFrame* pVideo = 0;
 
@@ -263,6 +267,9 @@ int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
 
         if(pVideo)
         {
+            pVideo->pts = curVideoPts_;
+            curVideoPts_ += videoPtsInc;
+
             LOG_IF(debug_, INFO) << "Encoding video frame. PTS: " << pVideo->pts;
 
             result = avcodec_send_frame(pVideoCodecContext_, pVideo);
@@ -322,6 +329,9 @@ int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
 
         if(pAudio)
         {
+            pAudio->pts = curAudioPts_;
+            curAudioPts_ += audioPtsInc * pAudio->nb_samples;
+
             LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudio->pts;
 
             if(pResampler_)

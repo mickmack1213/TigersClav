@@ -27,9 +27,9 @@ void ScoreBoard::update(std::shared_ptr<Referee> pRef)
 
     // Clear the image.
     ctx_.setCompOp(BL_COMP_OP_SRC_COPY);
-    ctx_.setFillStyle(BLRgba32(0x00000000));
-//    ctx_.setFillStyle(BLRgba32(0xFFFFFFFF));
-//    ctx_.setFillStyle(BLRgba32(0xFF000000));
+//    ctx_.setFillStyle(BLRgba32(0xFF330000));
+//    ctx_.setFillStyle(BLRgba32(0xFFBBBBBB));
+    ctx_.setFillStyle(BLRgba32(0xFF00FF00));
     ctx_.fillAll();
 
     drawCard(CardColor::RED, redCards[0], BLPoint(0, 0));

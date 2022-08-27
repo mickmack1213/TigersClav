@@ -67,6 +67,7 @@ add_executable(${PROJECT_NAME}
     src/model/Camera.cpp
     src/model/GameLog.cpp
     src/model/Director.cpp
+    src/model/VideoProducer.cpp
     
     src/util/gzstream.cpp
     src/util/easylogging++.cc

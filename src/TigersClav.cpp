@@ -164,9 +164,14 @@ void TigersClav::drawProjectPanel()
             }
         }
 
-        if(ImGui::Button("Load Gamelog", ImVec2(100.0f, 0.0f)))
+        if(ImGui::Button("Load Gamelog", ImVec2(200.0f, 0.0f)))
         {
             ImGuiFileDialog::Instance()->OpenDialog("LoadGamelogDialog", "Choose File", "Gamelogs {.log,.gz}", lastFileOpenPath_, 1, 0, ImGuiFileDialogFlags_Modal);
+        }
+
+        if(ImGui::Button("Export Score Board Video", ImVec2(200.0f, 0.0f)))
+        {
+            pVideoProducer_ = std::make_unique<VideoProducer>(pProject_->getGameLog());
         }
 
         if(ImGuiFileDialog::Instance()->Display("LoadGamelogDialog", ImGuiWindowFlags_NoCollapse, ImVec2(500, 500)))
@@ -282,33 +287,9 @@ void TigersClav::drawProjectPanel()
                 // Save cut video logic
                 if(pCam->getTotalDuration_ns() > 0)
                 {
-                    if(ImGui::Button("Save Cut Video", ImVec2(200.0f, 0.0f)))
+                    if(ImGui::Button("Export Cut Video", ImVec2(200.0f, 0.0f)))
                     {
-                        const auto pVideo = pCam->getVideos().front();
-                        const auto pMedia = pVideo->pVideo_;
-
-                        MediaEncoder enc(pCam->getName() + "-test.mp4");
-
-                        using namespace std::chrono_literals;
-
-                        pMedia->seekTo(0.0);
-                        for(int i = 0; i < 60*10; i++)
-                        {
-                            std::shared_ptr<MediaFrame> pFrame;
-                            do
-                            {
-                                pFrame = pMedia->get();
-                                std::this_thread::sleep_for(1ms);
-                            }
-                            while(!pFrame);
-
-                            if(enc.put(pFrame) < 0)
-                                break;
-
-                            pMedia->seekToNext();
-                        }
-
-                        enc.close();
+                        pVideoProducer_ = std::make_unique<VideoProducer>(pProject_->getGameLog(), pCam);
                     }
                 }
 
@@ -369,6 +350,39 @@ void TigersClav::drawProjectPanel()
         }
 
         ImGui::TreePop();
+    }
+
+    if(ImGui::Button("Export All Project Videos", ImVec2(200.0f, 0.0f)))
+    {
+        pVideoProducer_ = std::make_unique<VideoProducer>(pProject_);
+    }
+
+    if(pVideoProducer_)
+        ImGui::OpenPopup("Rendering");
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if(ImGui::BeginPopupModal("Rendering", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("Progress: %.2f%%, done: %s", pVideoProducer_->getProgress()*100.0f, pVideoProducer_->isDone() ? "yes" : "no");
+        ImGui::Text("Frame time:    % 7.3fms", pVideoProducer_->getPerfTotalTime()*1e3f);
+        ImGui::Text("Decoding time: % 7.3fms (%.2f%%)", pVideoProducer_->getPerfDecodingTime()*1e3f, pVideoProducer_->getPerfDecodingTime()/pVideoProducer_->getPerfTotalTime()*100.0f);
+        ImGui::Text("Encoding time: % 7.3fms (%.2f%%)", pVideoProducer_->getPerfEncodingTime()*1e3f, pVideoProducer_->getPerfEncodingTime()/pVideoProducer_->getPerfTotalTime()*100.0f);
+
+        ImGui::SetItemDefaultFocus();
+        if(ImGui::Button("Abort", ImVec2(200, 0)))
+        {
+            pVideoProducer_->abort();
+        }
+
+        if(pVideoProducer_->isDone())
+        {
+            pVideoProducer_ = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
     }
 
     ImGui::End();
