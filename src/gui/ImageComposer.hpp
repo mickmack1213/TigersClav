@@ -1,7 +1,7 @@
 #pragma once
 
 #include "util/ShaderProgram.hpp"
-#include "data/Video.hpp"
+#include "data/AVWrapper.hpp"
 #include "imgui.h"
 #include <memory>
 

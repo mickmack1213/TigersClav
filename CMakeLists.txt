@@ -55,7 +55,6 @@ add_executable(${PROJECT_NAME}
     src/LogViewer.cpp
     
     src/data/SSLGameLog.cpp
-    src/data/Video.cpp
     src/data/MediaSource.cpp
     src/data/MediaEncoder.cpp
     
