@@ -48,4 +48,6 @@ private:
 
     GLuint scoreBoardTexture_;
     GLuint fieldVisualizerTexture_;
+
+    bool exportScoreBoard_;
 };

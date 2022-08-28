@@ -2,18 +2,45 @@
 #include "util/easylogging++.h"
 #include <iomanip>
 
+static enum AVPixelFormat getHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts)
+{
+    return reinterpret_cast<MediaSource*>(ctx->opaque)->internalGetHwFormat(ctx, pix_fmts);
+}
 
-MediaSource::MediaSource(std::string filename)
+enum AVPixelFormat MediaSource::internalGetHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts)
+{
+    const enum AVPixelFormat *p;
+
+    for (p = pix_fmts; *p != -1; p++) {
+        if (*p == hwPixFormat_)
+            return *p;
+    }
+
+    LOG(ERROR) << "Failed to get HW surface format.";
+    return AV_PIX_FMT_NONE;
+}
+
+MediaSource::MediaSource(std::string filename, bool useHwDecoder, std::string hwDecoder)
 :lastRequestTime_s_(0.0),
  debug_(false),
  isLoaded_(false),
  filename_(filename),
  runPreloaderThread_(true),
- reachedEndOfFile_(false)
+ reachedEndOfFile_(false),
+ pFormatContext_(0),
+ pVideoCodecContext_(0),
+ pAudioCodecContext_(0),
+ pHwDeviceContext_(0),
+ hwPixFormat_(AV_PIX_FMT_NONE)
 {
     int result;
 
     LOG(INFO) << "Trying to load media source: " << filename;
+
+    enum AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
+
+    while((type = av_hwdevice_iterate_types(type)) != AV_HWDEVICE_TYPE_NONE)
+        LOG_IF(debug_, INFO) << "AV_HWDEVICE support: " << av_hwdevice_get_type_name(type);
 
     // Open container format
     pFormatContext_ = avformat_alloc_context();
@@ -64,6 +91,41 @@ MediaSource::MediaSource(std::string filename)
         LOG(INFO) << "    " << pDictEntry->key << " = " << pDictEntry->value;
     }
 
+    const AVCodecHWConfig* pVideoHWConfig = 0;
+
+    if(useHwDecoder)
+    {
+        type = av_hwdevice_find_type_by_name(hwDecoder.c_str());
+
+        int index = 0;
+        while(1)
+        {
+            const AVCodecHWConfig* pConfig = avcodec_get_hw_config(pVideoCodec_, index);
+            if(!pConfig)
+                break;
+
+            if(pConfig->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)
+            {
+                LOG(INFO) << "[" << index << "] Supported HW: " << av_hwdevice_get_type_name(pConfig->device_type) << ", pixfmt: " << pConfig->pix_fmt;
+            }
+
+            pVideoHWConfig = pConfig; // we will just use the last config if none was specified
+
+            if(type != AV_HWDEVICE_TYPE_NONE && pConfig->device_type == type)
+                break;
+
+            index++;
+        }
+
+        if(!pVideoHWConfig)
+        {
+            LOG(ERROR) << "No hardware decoding support available";
+            return;
+        }
+
+        LOG(INFO) << "Selected HW: " << av_hwdevice_get_type_name(pVideoHWConfig->device_type);
+    }
+
     pVideoCodecContext_ = avcodec_alloc_context3(pVideoCodec_);
     if(!pVideoCodecContext_)
     {
@@ -76,6 +138,22 @@ MediaSource::MediaSource(std::string filename)
     {
         LOG(ERROR) << "Video: Failed to copy codec parameters to codec context. Result: " << err2str(result);
         return;
+    }
+
+    if(useHwDecoder)
+    {
+        hwPixFormat_ = pVideoHWConfig->pix_fmt;
+        pVideoCodecContext_->opaque = this;
+        pVideoCodecContext_->get_format = &getHwFormat;
+
+        result = av_hwdevice_ctx_create(&pHwDeviceContext_, pVideoHWConfig->device_type, NULL, NULL, 0);
+        if(result < 0)
+        {
+            LOG(ERROR) << "Failed to create specified HW device.";
+            return;
+        }
+
+        pVideoCodecContext_->hw_device_ctx = av_buffer_ref(pHwDeviceContext_);
     }
 
     result = avcodec_open2(pVideoCodecContext_, pVideoCodec_, NULL);
@@ -137,7 +215,6 @@ MediaSource::MediaSource(std::string filename)
 MediaSource::~MediaSource()
 {
     runPreloaderThread_ = false;
-    preloadCondition_.notify_one();
 
     if(preloaderThread_.joinable())
         preloaderThread_.join();
@@ -150,6 +227,9 @@ MediaSource::~MediaSource()
 
     if(pAudioCodecContext_)
         avcodec_free_context(&pAudioCodecContext_);
+
+    if(pHwDeviceContext_)
+        av_buffer_unref(&pHwDeviceContext_);
 }
 
 double MediaSource::getDuration_s() const
@@ -164,7 +244,6 @@ void MediaSource::seekTo(double time_s)
     time_s = std::max(0.0, time_s);
 
     lastRequestTime_s_ = time_s;
-    preloadCondition_.notify_one();
 }
 
 void MediaSource::seekToNext()
@@ -180,8 +259,6 @@ void MediaSource::seekToPrevious()
 std::shared_ptr<MediaFrame> MediaSource::get()
 {
     int result;
-
-    preloadCondition_.notify_one();
 
     auto pMediaFrame = std::make_shared<MediaFrame>();
 
@@ -305,8 +382,7 @@ void MediaSource::preloader()
 
     while(runPreloaderThread_)
     {
-        std::unique_lock<std::mutex> lock(preloadMutex_);
-        preloadCondition_.wait(lock);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         if(!runPreloaderThread_)
             return;
@@ -364,8 +440,8 @@ void MediaSource::updateCache(double requestTime_s)
         cachedTimesAudio_s[1] = audioPtsToSeconds(audioSamples_.rbegin()->first);
     }
 
-    const bool requestOutsideVideoCache = requestTime_s < cachedTimesVideo_s[0] || requestTime_s > cachedTimesVideo_s[1];
-    const bool requestOutsideAudioCache = requestTime_s < cachedTimesAudio_s[0] || requestTime_s > cachedTimesAudio_s[1] - videoFrameDeltaTime_s_;
+    const bool requestOutsideVideoCache = requestTime_s < cachedTimesVideo_s[0] || (requestTime_s > cachedTimesVideo_s[1] + videoFrameDeltaTime_s_ * 5);
+    const bool requestOutsideAudioCache = requestTime_s < cachedTimesAudio_s[0] || (requestTime_s > cachedTimesAudio_s[1] + videoFrameDeltaTime_s_ * 5);
 
     if(requestOutsideVideoCache || requestOutsideAudioCache)
     {
@@ -534,15 +610,42 @@ std::shared_ptr<AVFrameWrapper> MediaSource::processVideoFrame(AVPacket* pPacket
         return nullptr;
     }
 
+    auto pWrapperRx = std::make_shared<AVFrameWrapper>();
     auto pWrapper = std::make_shared<AVFrameWrapper>();
-    AVFrame* pFrame = *pWrapper;
-    result = avcodec_receive_frame(pVideoCodecContext_, pFrame);
+
+    result = avcodec_receive_frame(pVideoCodecContext_, *pWrapperRx);
     if(result >= 0)
     {
+        if((*pWrapperRx)->format == hwPixFormat_)
+        {
+            result = av_hwframe_transfer_data(*pWrapper, *pWrapperRx, 0); // transfer from GPU to CPU
+            if(result < 0)
+            {
+                LOG(ERROR) << "Failed to transfer data to system memory";
+            }
+
+            av_frame_copy_props(*pWrapper, *pWrapperRx);
+        }
+        else
+        {
+            pWrapper = pWrapperRx;
+        }
+
+        AVFrame* pFrame = *pWrapper;
+
         float pts_s = (float)pFrame->pts * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
 
         LOG_IF(debug_, INFO) << "Video Frame: " << pVideoCodecContext_->frame_number << ", type: " << av_get_picture_type_char(pFrame->pict_type)
                              << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format;
+
+        if(!pPacket)
+        {
+            result = avcodec_receive_frame(pVideoCodecContext_, *pWrapperRx);
+            if(result >= 0)
+            {
+                LOG(INFO) << "More frames were available after a flush!";
+            }
+        }
 
         return pWrapper;
     }

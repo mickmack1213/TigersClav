@@ -13,6 +13,7 @@ MediaEncoder::MediaEncoder(std::string filename)
  pVideoStream_(0),
  pVideoCodec_(0),
  pVideoCodecContext_(0),
+ pVideoEncFrame_(0),
  pAudioStream_(0),
  pAudioCodec_(0),
  pAudioCodecContext_(0),
@@ -27,7 +28,7 @@ MediaEncoder::~MediaEncoder()
     close();
 }
 
-bool MediaEncoder::initialize(std::shared_ptr<MediaFrame> pFrame)
+bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
 {
     int result;
 
@@ -46,7 +47,7 @@ bool MediaEncoder::initialize(std::shared_ptr<MediaFrame> pFrame)
     // Create video stream and encoder
     if(pFrame->pImage)
     {
-        AVFrame* pVideo = *(pFrame->pImage);
+        const AVFrame* pVideo = *(pFrame->pImage);
 
         pVideoStream_ = avformat_new_stream(pFormatContext_, NULL);
         if(!pVideoStream_)
@@ -97,13 +98,20 @@ bool MediaEncoder::initialize(std::shared_ptr<MediaFrame> pFrame)
 
         avcodec_parameters_from_context(pVideoStream_->codecpar, pVideoCodecContext_);
 
+        pVideoEncFrame_ = av_frame_alloc();
+        pVideoEncFrame_->width = pVideo->width;
+        pVideoEncFrame_->height = pVideo->height;
+        pVideoEncFrame_->format = pVideo->format;
+
+        av_frame_get_buffer(pVideoEncFrame_, 0);
+
         LOG(INFO) << "Encoder video: " << pVideoCodec_->name << ", " << pVideoCodecContext_->width << "x" << pVideoCodecContext_->height << ", bit rate: " << pVideoCodecContext_->bit_rate;
     }
 
     // Create audio stream and encoder
     if(pFrame->pSamples)
     {
-        AVFrame* pAudio = *(pFrame->pSamples);
+        const AVFrame* pAudio = *(pFrame->pSamples);
 
         if(pAudio->format != AV_SAMPLE_FMT_FLTP)
         {
@@ -234,17 +242,21 @@ void MediaEncoder::close()
     if(pAudioCodecContext_)
         avcodec_free_context(&pAudioCodecContext_);
 
+    if(pVideoEncFrame_)
+        av_frame_free(&pVideoEncFrame_);
+
     initialized_ = false;
     pFormatContext_ = 0;
     pVideoCodecContext_ = 0;
     pVideoStream_ = 0;
     pVideoCodec_ = 0;
+    pVideoEncFrame_ = 0;
     pAudioStream_ = 0;
     pAudioCodec_ = 0;
     pAudioCodecContext_ = 0;
 }
 
-int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
+int MediaEncoder::put(std::shared_ptr<const MediaFrame> pFrame)
 {
     int result;
 
@@ -260,19 +272,23 @@ int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
     {
         int64_t videoPtsInc = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
 
-        AVFrame* pVideo = 0;
+        const AVFrame* pVideo = 0;
 
         if(pFrame && pFrame->pImage)
             pVideo = *(pFrame->pImage);
 
         if(pVideo)
         {
-            pVideo->pts = curVideoPts_;
+            av_frame_make_writable(pVideoEncFrame_);
+            av_frame_copy(pVideoEncFrame_, pVideo);
+            av_frame_copy_props(pVideoEncFrame_, pVideo);
+
+            pVideoEncFrame_->pts = curVideoPts_;
             curVideoPts_ += videoPtsInc;
 
-            LOG_IF(debug_, INFO) << "Encoding video frame. PTS: " << pVideo->pts;
+            LOG_IF(debug_, INFO) << "Encoding video frame. PTS: " << pVideoEncFrame_->pts;
 
-            result = avcodec_send_frame(pVideoCodecContext_, pVideo);
+            result = avcodec_send_frame(pVideoCodecContext_, pVideoEncFrame_);
             if(result < 0)
             {
                 LOG(ERROR) << "avcodec_send_frame (video) error: " << err2str(result);
@@ -306,7 +322,6 @@ int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
 
             LOG_IF(debug_, INFO) << "   Encoded video frame. PTS: " << packet->pts << ", DTS: " << packet->dts << ", dur: " << packet->duration << ", stream: " << packet->stream_index;
 
-//            result = av_write_frame(pFormatContext_, packet);
             result = av_interleaved_write_frame(pFormatContext_, packet);
             if(result < 0)
             {
@@ -322,54 +337,47 @@ int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
     {
         int audioPtsInc = pAudioStream_->time_base.den / (pAudioStream_->time_base.num * pAudioCodecContext_->sample_rate);
 
-        AVFrame* pAudio = 0;
+        const AVFrame* pAudio = 0;
 
         if(pFrame && pFrame->pSamples)
             pAudio = *(pFrame->pSamples);
 
         if(pAudio)
         {
-            pAudio->pts = curAudioPts_;
-            curAudioPts_ += audioPtsInc * pAudio->nb_samples;
+            AVFrame* pAudioEnc = av_frame_alloc();
+            pAudioEnc->nb_samples = pAudio->nb_samples;
+            pAudioEnc->format = AV_SAMPLE_FMT_FLTP;
+            pAudioEnc->sample_rate = pAudio->sample_rate;
+            pAudioEnc->channel_layout = pAudio->channel_layout;
+            pAudioEnc->pts = curAudioPts_;
+            curAudioPts_ += audioPtsInc * pAudioEnc->nb_samples;
 
-            LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudio->pts;
+            LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudioEnc->pts;
+
+            av_frame_get_buffer(pAudioEnc, 0);
 
             if(pResampler_)
             {
-                AVFrame* pAudioResampled = av_frame_alloc();
-                pAudioResampled->nb_samples = pAudio->nb_samples;
-                pAudioResampled->format = AV_SAMPLE_FMT_FLTP;
-                pAudioResampled->sample_rate = pAudio->sample_rate;
-                pAudioResampled->pts = pAudio->pts;
-                pAudioResampled->channel_layout = pAudio->channel_layout;
-
-                av_frame_get_buffer(pAudioResampled, 0);
-
-                result = swr_convert_frame(pResampler_, pAudioResampled, pAudio);
+                result = swr_convert_frame(pResampler_, pAudioEnc, pAudio);
                 if(result < 0)
                 {
                     LOG(ERROR) << "Audio conversion failed: " << err2str(result);
                     return -1;
                 }
-
-                result = avcodec_send_frame(pAudioCodecContext_, pAudioResampled);
-                if(result < 0)
-                {
-                    LOG(ERROR) << "avcodec_send_frame (audio, resampled) error: " << err2str(result);
-                    return -1;
-                }
-
-                av_frame_free(&pAudioResampled);
             }
             else
             {
-                result = avcodec_send_frame(pAudioCodecContext_, pAudio);
-                if(result < 0)
-                {
-                    LOG(ERROR) << "avcodec_send_frame (audio) error: " << err2str(result);
-                    return -1;
-                }
+                av_frame_copy(pAudioEnc, pAudio);
             }
+
+            result = avcodec_send_frame(pAudioCodecContext_, pAudioEnc);
+            if(result < 0)
+            {
+                LOG(ERROR) << "avcodec_send_frame (audio) error: " << err2str(result);
+                return -1;
+            }
+
+            av_frame_free(&pAudioEnc);
         }
         else if(!pFrame)
         {
@@ -397,7 +405,6 @@ int MediaEncoder::put(std::shared_ptr<MediaFrame> pFrame)
 
             LOG_IF(debug_, INFO) << "   Encoded audio frame. PTS: " << packet->pts << ", DTS: " << packet->dts << ", dur: " << packet->duration << ", stream: " << packet->stream_index;
 
-//            result = av_write_frame(pFormatContext_, packet);
             result = av_interleaved_write_frame(pFormatContext_, packet);
             if(result < 0)
             {

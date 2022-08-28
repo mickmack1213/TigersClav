@@ -34,6 +34,9 @@ public:
 
     std::vector<std::shared_ptr<VideoRecording>>& getVideos() { return pVideos_; }
 
+    bool exportCut_;
+    bool exportArchive_;
+
 private:
     std::string name_;
     std::vector<std::shared_ptr<VideoRecording>> pVideos_;

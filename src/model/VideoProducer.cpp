@@ -8,7 +8,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-VideoProducer::VideoProducer(std::unique_ptr<Project>& pProject)
+VideoProducer::VideoProducer()
 :workerDone_(false),
  shouldAbort_(false),
  totalDuration_s_(0.0),
@@ -18,63 +18,6 @@ VideoProducer::VideoProducer(std::unique_ptr<Project>& pProject)
  perfDecodingTime_(0.0f),
  perfEncodingTime_(0.0f)
 {
-    const auto& finalCut = pProject->getGameLog()->getDirector().getFinalCut();
-
-    if(finalCut.empty())
-        return;
-
-    scoreBoardVideo_.sourceFile = pProject->getGameLog()->getFilename();
-    scoreBoardVideo_.outFile = scoreBoardVideo_.sourceFile + ".mp4";
-    scoreBoardVideo_.cut = finalCut;
-
-    for(const auto& pCam : pProject->getCameras())
-    {
-        addCutVideo(pCam, finalCut);
-    }
-
-    workThread_ = std::thread(&VideoProducer::worker, this);
-}
-
-VideoProducer::VideoProducer(std::shared_ptr<GameLog> pGameLog)
-:workerDone_(false),
- shouldAbort_(false),
- totalDuration_s_(0.0),
- rendered_s_(0.0),
- pResizer_(0),
- perfTotalTime_(0.0f),
- perfDecodingTime_(0.0f),
- perfEncodingTime_(0.0f)
-{
-    const auto& finalCut = pGameLog->getDirector().getFinalCut();
-
-    if(finalCut.empty())
-        return;
-
-    scoreBoardVideo_.sourceFile = pGameLog->getFilename();
-    scoreBoardVideo_.outFile = scoreBoardVideo_.sourceFile + ".mp4";
-    scoreBoardVideo_.cut = finalCut;
-
-    workThread_ = std::thread(&VideoProducer::worker, this);
-}
-
-VideoProducer::VideoProducer(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam)
-:workerDone_(false),
- shouldAbort_(false),
- totalDuration_s_(0.0),
- rendered_s_(0.0),
- pResizer_(0),
- perfTotalTime_(0.0f),
- perfDecodingTime_(0.0f),
- perfEncodingTime_(0.0f)
-{
-    const auto& finalCut = pGameLog->getDirector().getFinalCut();
-
-    if(finalCut.empty())
-        return;
-
-    addCutVideo(pCam, finalCut);
-
-    workThread_ = std::thread(&VideoProducer::worker, this);
 }
 
 VideoProducer::~VideoProducer()
@@ -86,6 +29,79 @@ VideoProducer::~VideoProducer()
 
     if(pResizer_)
         sws_freeContext(pResizer_);
+}
+
+void VideoProducer::addAllVideos(std::unique_ptr<Project>& pProject)
+{
+    const auto& finalCut = pProject->getGameLog()->getDirector().getFinalCut();
+
+    if(finalCut.empty())
+        return;
+
+    addScoreBoardVideo(pProject->getGameLog());
+
+    for(const auto& pCam : pProject->getCameras())
+    {
+        addCutVideo(pCam, finalCut);
+        addArchiveCut(pCam, pProject->getGameLog());
+    }
+}
+
+void VideoProducer::addCutVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam)
+{
+    const auto& finalCut = pGameLog->getDirector().getFinalCut();
+
+    if(finalCut.empty())
+        return;
+
+    addCutVideo(pCam, finalCut);
+}
+
+void VideoProducer::addArchiveVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam)
+{
+    addArchiveCut(pCam, pGameLog);
+}
+
+void VideoProducer::addScoreBoardVideo(std::shared_ptr<GameLog> pGameLog)
+{
+    const auto& finalCut = pGameLog->getDirector().getFinalCut();
+
+    if(finalCut.empty())
+        return;
+
+    scoreBoardVideo_.sourceFile = pGameLog->getFilename();
+    scoreBoardVideo_.outFile = scoreBoardVideo_.sourceFile + ".mp4";
+    scoreBoardVideo_.cut = finalCut;
+}
+
+void VideoProducer::start()
+{
+    workThread_ = std::thread(&VideoProducer::worker, this);
+}
+
+void VideoProducer::addArchiveCut(const std::shared_ptr<Camera>& pCam, std::shared_ptr<GameLog> pGameLog)
+{
+    if(pCam->getVideos().empty())
+    {
+        LOG(WARNING) << "Camera " << pCam->getName() << " has no videos, skipping.";
+        return;
+    }
+
+    LOG(INFO) << "Preparing data for camera: " << pCam->getName();
+
+    std::string outDir = std::filesystem::path(pCam->getVideos().front()->pVideo_->getFilename()).parent_path().string();
+
+    CutVideo cutVideo;
+    cutVideo.outFile = outDir + "/archive-" + pCam->getName() + ".mp4";
+
+    Director::Cut dCut;
+    dCut.tStart_ns_ = 0;
+    dCut.tEnd_ns_ = pGameLog->getTotalDuration_ns();
+
+    auto pieces = fillCut(dCut, pCam->getVideos());
+    cutVideo.pieces.insert(cutVideo.pieces.end(), pieces.begin(), pieces.end());
+
+    outVideos_.push_back(cutVideo);
 }
 
 void VideoProducer::addCutVideo(const std::shared_ptr<Camera>& pCam, const std::vector<Director::Cut>& finalCut)
@@ -101,7 +117,7 @@ void VideoProducer::addCutVideo(const std::shared_ptr<Camera>& pCam, const std::
     std::string outDir = std::filesystem::path(pCam->getVideos().front()->pVideo_->getFilename()).parent_path().string();
 
     CutVideo cutVideo;
-    cutVideo.outFile = outDir + "/" + pCam->getName() + ".mp4";
+    cutVideo.outFile = outDir + "/cut-" + pCam->getName() + ".mp4";
 
     for(const auto& cut : finalCut)
     {
@@ -110,6 +126,10 @@ void VideoProducer::addCutVideo(const std::shared_ptr<Camera>& pCam, const std::
     }
 
     outVideos_.push_back(cutVideo);
+
+    cutVideo.outFile = outDir + "/archive-" + pCam->getName() + ".mp4";
+    Director::Cut dCut;
+    dCut.tStart_ns_ = 0;
 }
 
 std::vector<CutVideo::Piece> VideoProducer::fillCut(const Director::Cut& cut, const std::vector<std::shared_ptr<VideoRecording>>& recordings)
@@ -283,6 +303,8 @@ void VideoProducer::worker()
         }
     }
 
+    tWorkerStart_ = std::chrono::high_resolution_clock::now();
+
     if(!scoreBoardVideo_.sourceFile.empty())
     {
         for(const auto& cut : scoreBoardVideo_.cut)
@@ -350,8 +372,16 @@ void VideoProducer::worker()
         enc.close();
     }
 
+    auto tScoreBoardComplete = std::chrono::high_resolution_clock::now();
+
+    float scoreBoardTime = std::chrono::duration_cast<std::chrono::microseconds>(tScoreBoardComplete - tWorkerStart_).count() * 1e-6f;
+
+    std::map<std::string, float> videoTimes;
+
     for(const auto& outVideo : outVideos_)
     {
+        auto tVideoEncStart = std::chrono::high_resolution_clock::now();
+
         MediaEncoder enc(outVideo.outFile);
 
         auto firstPieceWithSource = std::find_if(outVideo.pieces.begin(), outVideo.pieces.end(), [](const CutVideo::Piece& p){ return !p.sourceFile.empty(); });
@@ -361,7 +391,7 @@ void VideoProducer::worker()
             continue;
         }
 
-        std::unique_ptr<MediaSource> pSrc = std::make_unique<MediaSource>(firstPieceWithSource->sourceFile);
+        std::unique_ptr<MediaSource> pSrc = std::make_unique<MediaSource>(firstPieceWithSource->sourceFile, true);
         const double frameDelta_s = pSrc->getFrameDeltaTime();
         pSrc->seekTo(0.0);
 
@@ -397,22 +427,34 @@ void VideoProducer::worker()
             {
                 if(pSrc->getFilename() != piece.sourceFile)
                 {
-                    pSrc = std::make_unique<MediaSource>(piece.sourceFile);
+                    pSrc = std::make_unique<MediaSource>(piece.sourceFile, true);
                 }
 
                 pSrc->seekTo(piece.tStart_s);
 
                 for(double t = 0.0; t < piece.duration_s; t += frameDelta_s)
                 {
+                    pSrc->seekTo(piece.tStart_s + t);
+
                     std::chrono::high_resolution_clock::time_point tDecStart = std::chrono::high_resolution_clock::now();
+
                     // wait until frame is available
                     std::shared_ptr<MediaFrame> pFrame;
                     do
                     {
+                        std::this_thread::yield();
                         pFrame = pSrc->get();
-                        std::this_thread::sleep_for(1ms);
+
+                        if(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - tDecStart).count() > 10000)
+                        {
+                            LOG(ERROR) << "Timeout waiting for frame: " << t << ", file: " << pSrc->getFilename() << ", dur: " << pSrc->getDuration_s() << ", tell: " << pSrc->tell();
+                            break;
+                        }
                     }
-                    while(!pFrame);
+                    while(!pFrame && !pSrc->hasReachedEndOfFile());
+
+                    if(!pFrame)
+                        break;
 
                     std::chrono::high_resolution_clock::time_point tDecEnd = std::chrono::high_resolution_clock::now();
 
@@ -434,7 +476,7 @@ void VideoProducer::worker()
                     perfDecodingTime_ = alpha*perfDecodingTime_ + (1.0f-alpha)*decodingTime;
                     perfEncodingTime_ = alpha*perfEncodingTime_ + (1.0f-alpha)*encodingTime;
 
-                    pSrc->seekToNext();
+//                    pSrc->seekToNext();
 
                     rendered_s_ += frameDelta_s;
 
@@ -448,7 +490,25 @@ void VideoProducer::worker()
         }
 
         enc.close();
+
+        auto tVideoEncEnd = std::chrono::high_resolution_clock::now();
+        videoTimes[outVideo.outFile] = std::chrono::duration_cast<std::chrono::microseconds>(tVideoEncEnd - tVideoEncStart).count() * 1e-6f;
     }
 
+    LOG(INFO) << "VideoProducer done. Timing: ";
+    LOG(INFO) << "Score board: " << scoreBoardTime;
+    for(const auto& t : videoTimes)
+        LOG(INFO) << t.first << ": " << t.second;
+
     workerDone_ = true;
+}
+
+float VideoProducer::getElapsedTime() const
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - tWorkerStart_).count() * 1e-6f;
+}
+
+float VideoProducer::getEstimatedTimeLeft() const
+{
+    return getElapsedTime() * totalDuration_s_ / rendered_s_ - getElapsedTime();
 }

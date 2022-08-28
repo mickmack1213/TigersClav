@@ -31,10 +31,14 @@ struct RenderedVideo
 class VideoProducer
 {
 public:
-    VideoProducer(std::unique_ptr<Project>& pProject); // render everything (gamelog + all cameras)
-    VideoProducer(std::shared_ptr<GameLog> pGameLog); // render only gamelog
-    VideoProducer(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam); // render a single camera
+    VideoProducer();
     ~VideoProducer();
+
+    void addAllVideos(std::unique_ptr<Project>& pProject);
+    void addCutVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam);
+    void addArchiveVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam);
+    void addScoreBoardVideo(std::shared_ptr<GameLog> pGameLog);
+    void start();
 
     void abort() { shouldAbort_ = true; }
     float getProgress() const { return rendered_s_/totalDuration_s_; }
@@ -44,8 +48,12 @@ public:
     float getPerfDecodingTime() const { return perfDecodingTime_; }
     float getPerfEncodingTime() const { return perfEncodingTime_; }
 
+    float getElapsedTime() const;
+    float getEstimatedTimeLeft() const;
+
 private:
     void addCutVideo(const std::shared_ptr<Camera>& pCam, const std::vector<Director::Cut>& finalCut);
+    void addArchiveCut(const std::shared_ptr<Camera>& pCam, std::shared_ptr<GameLog> pGameLog);
     std::vector<CutVideo::Piece> fillCut(const Director::Cut& cut, const std::vector<std::shared_ptr<VideoRecording>>& recordings);
 
     std::shared_ptr<MediaFrame> blImageToMediaFrame(const BLImageData& image);
@@ -68,4 +76,6 @@ private:
     double rendered_s_;
 
     struct SwsContext* pResizer_;
+
+    std::chrono::high_resolution_clock::time_point tWorkerStart_;
 };

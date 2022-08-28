@@ -14,11 +14,11 @@ public:
     MediaEncoder(std::string filename);
     ~MediaEncoder();
 
-    int put(std::shared_ptr<MediaFrame> pFrame);
+    int put(std::shared_ptr<const MediaFrame> pFrame);
     void close();
 
 private:
-    bool initialize(std::shared_ptr<MediaFrame> pFrame);
+    bool initialize(std::shared_ptr<const MediaFrame> pFrame);
     std::string err2str(int errnum);
 
     bool debug_;
@@ -33,6 +33,7 @@ private:
     AVStream* pVideoStream_;
     AVCodec* pVideoCodec_;
     AVCodecContext* pVideoCodecContext_;
+    AVFrame* pVideoEncFrame_;
 
     AVStream* pAudioStream_;
     AVCodec* pAudioCodec_;

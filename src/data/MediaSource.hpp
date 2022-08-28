@@ -20,11 +20,12 @@ struct MediaCachedDuration
 class MediaSource
 {
 public:
-    MediaSource(std::string filename);
+    MediaSource(std::string filename, bool useHwDecoder = false, std::string hwDecoder = "");
     ~MediaSource();
 
     bool isLoaded() const { return isLoaded_; }
     std::string getFilename() const { return filename_; }
+    bool hasReachedEndOfFile() const { return reachedEndOfFile_; }
 
     double getDuration_s() const;
     double getFrameDeltaTime() const { return videoFrameDeltaTime_s_; }
@@ -43,6 +44,8 @@ public:
     int64_t videoSecondsToPts(double seconds) const;
     double audioPtsToSeconds(int64_t pts) const;
     int64_t audioSecondsToPts(double seconds) const;
+
+    enum AVPixelFormat internalGetHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts);
 
 private:
     std::string err2str(int errnum);
@@ -64,6 +67,8 @@ private:
     AVCodec* pVideoCodec_;
     AVStream* pVideoStream_;
     AVCodecContext* pVideoCodecContext_;
+    enum AVPixelFormat hwPixFormat_;
+    AVBufferRef *pHwDeviceContext_;
 
     AVCodec* pAudioCodec_;
     AVStream* pAudioStream_;
@@ -84,7 +89,4 @@ private:
 
     std::thread preloaderThread_;
     std::atomic<bool> runPreloaderThread_;
-
-    std::mutex preloadMutex_;
-    std::condition_variable preloadCondition_;
 };

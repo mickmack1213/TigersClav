@@ -19,7 +19,9 @@ std::string VideoRecording::getName() const
 }
 
 Camera::Camera(std::string name)
-:name_(name)
+:name_(name),
+ exportCut_(false),
+ exportArchive_(false)
 {
 }
 
