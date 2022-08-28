@@ -32,7 +32,7 @@ struct RenderedVideo
 class VideoProducer
 {
 public:
-    VideoProducer();
+    VideoProducer(std::string outputBaseName);
     ~VideoProducer();
 
     void addAllVideos(std::unique_ptr<Project>& pProject);
@@ -68,6 +68,8 @@ private:
     void wipeFrame(std::shared_ptr<MediaFrame> pFrame);
 
     void worker();
+
+    std::string outputBaseName_;
 
     std::vector<CutVideo> outVideos_;
     RenderedVideo scoreBoardVideo_;

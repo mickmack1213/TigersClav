@@ -412,7 +412,10 @@ void TigersClav::drawProjectPanel()
         {
             pProject_->sync();
 
-            pVideoProducer_ = std::make_unique<VideoProducer>();
+            auto projectPath = std::filesystem::path(pProject_->getFilename());
+            std::string outputBase = projectPath.parent_path().string() + "/" + projectPath.stem().string() + "_";
+
+            pVideoProducer_ = std::make_unique<VideoProducer>(outputBase);
 
             if(exportScoreBoard_)
                 pVideoProducer_->addScoreBoardVideo(pProject_->getGameLog());

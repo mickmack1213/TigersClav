@@ -7,8 +7,9 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-VideoProducer::VideoProducer()
-:workerDone_(false),
+VideoProducer::VideoProducer(std::string outputBaseName)
+:outputBaseName_(outputBaseName),
+ workerDone_(false),
  shouldAbort_(false),
  totalDuration_s_(0.0),
  rendered_s_(0.0),
@@ -71,7 +72,7 @@ void VideoProducer::addScoreBoardVideo(std::shared_ptr<GameLog> pGameLog)
         return;
 
     scoreBoardVideo_.sourceFile = pGameLog->getFilename();
-    scoreBoardVideo_.outFile = scoreBoardVideo_.sourceFile + ".mp4";
+    scoreBoardVideo_.outFile = outputBaseName_ + "ScoreBoard.mp4";
     scoreBoardVideo_.cut = finalCut;
 }
 
@@ -90,10 +91,8 @@ void VideoProducer::addArchiveCut(const std::shared_ptr<Camera>& pCam, std::shar
 
     LOG(INFO) << "Preparing data for camera: " << pCam->getName();
 
-    std::string outDir = std::filesystem::path(pCam->getVideos().front()->pVideo_->getFilename()).parent_path().string();
-
     CutVideo cutVideo;
-    cutVideo.outFile = outDir + "/archive-" + pCam->getName() + ".mp4";
+    cutVideo.outFile = outputBaseName_ + "archive-" + pCam->getName() + ".mp4";
 
     Director::Cut dCut;
     dCut.tStart_ns_ = 0;
@@ -115,10 +114,8 @@ void VideoProducer::addCutVideo(const std::shared_ptr<Camera>& pCam, const std::
 
     LOG(INFO) << "Preparing data for camera: " << pCam->getName();
 
-    std::string outDir = std::filesystem::path(pCam->getVideos().front()->pVideo_->getFilename()).parent_path().string();
-
     CutVideo cutVideo;
-    cutVideo.outFile = outDir + "/cut-" + pCam->getName() + ".mp4";
+    cutVideo.outFile = outputBaseName_ + "cut-" + pCam->getName() + ".mp4";
 
     for(const auto& cut : finalCut)
     {
@@ -127,10 +124,6 @@ void VideoProducer::addCutVideo(const std::shared_ptr<Camera>& pCam, const std::
     }
 
     outVideos_.push_back(cutVideo);
-
-    cutVideo.outFile = outDir + "/archive-" + pCam->getName() + ".mp4";
-    Director::Cut dCut;
-    dCut.tStart_ns_ = 0;
 }
 
 std::vector<CutVideo::Piece> VideoProducer::fillCut(const Director::Cut& cut, const std::vector<std::shared_ptr<VideoRecording>>& recordings)
@@ -232,6 +225,8 @@ std::shared_ptr<MediaFrame> VideoProducer::blImageToMediaFrame(const BLImageData
     pFrame->format = AV_PIX_FMT_YUV420P;
     pFrame->width = image.size.w;
     pFrame->height = image.size.h;
+    pFrame->pts = 0;
+    pFrame->pkt_dts = 0;
 
     result = av_frame_get_buffer(pFrame, 0);
     if(result < 0)

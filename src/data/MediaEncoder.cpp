@@ -349,7 +349,7 @@ int MediaEncoder::put(std::shared_ptr<const MediaFrame> pFrame)
             packet->stream_index = pVideoStream_->index;
             packet->duration = videoPtsInc;
 
-            if(packet->dts >= packet->pts)
+            if(packet->dts > packet->pts)
                 packet->dts = packet->pts - 1000;
 
             LOG_IF(debug_, INFO) << "   Encoded video frame. PTS: " << packet->pts << ", DTS: " << packet->dts << ", dur: " << packet->duration << ", stream: " << packet->stream_index;
