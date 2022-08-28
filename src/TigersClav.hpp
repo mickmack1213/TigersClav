@@ -50,4 +50,7 @@ private:
     GLuint fieldVisualizerTexture_;
 
     bool exportScoreBoard_;
+
+    bool exportUseHwDecoder_;
+    bool exportUseHwEncoder_;
 };

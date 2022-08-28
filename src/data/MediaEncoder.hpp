@@ -11,11 +11,22 @@ extern "C" {
 class MediaEncoder
 {
 public:
-    MediaEncoder(std::string filename);
+    struct Timing
+    {
+        float copy;
+        float send;
+        float receive;
+        float write;
+    };
+
+    MediaEncoder(std::string filename, bool useHwEncoder = false);
     ~MediaEncoder();
 
     int put(std::shared_ptr<const MediaFrame> pFrame);
     void close();
+
+    Timing getVideoTiming() const { return videoTiming_; }
+    Timing getAudioTiming() const { return audioTiming_; }
 
 private:
     bool initialize(std::shared_ptr<const MediaFrame> pFrame);
@@ -33,11 +44,15 @@ private:
     AVStream* pVideoStream_;
     AVCodec* pVideoCodec_;
     AVCodecContext* pVideoCodecContext_;
-    AVFrame* pVideoEncFrame_;
 
     AVStream* pAudioStream_;
     AVCodec* pAudioCodec_;
     AVCodecContext* pAudioCodecContext_;
 
     SwrContext* pResampler_;
+
+    bool useHwEncoder_;
+
+    Timing videoTiming_;
+    Timing audioTiming_;
 };

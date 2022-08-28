@@ -1,6 +1,5 @@
 #include "VideoProducer.hpp"
 #include "util/easylogging++.h"
-#include "data/MediaEncoder.hpp"
 #include "data/MediaSource.hpp"
 #include <filesystem>
 
@@ -16,7 +15,9 @@ VideoProducer::VideoProducer()
  pResizer_(0),
  perfTotalTime_(0.0f),
  perfDecodingTime_(0.0f),
- perfEncodingTime_(0.0f)
+ perfEncodingTime_(0.0f),
+ useHwEncoder_(true),
+ useHwDecoder_(true)
 {
 }
 
@@ -314,6 +315,8 @@ void VideoProducer::worker()
 
         GameLog source(scoreBoardVideo_.sourceFile);
 
+        currentStep_ = std::filesystem::path(scoreBoardVideo_.outFile).stem().string();
+
         while(!source.isLoaded())
             std::this_thread::sleep_for(10ms);
 
@@ -359,6 +362,9 @@ void VideoProducer::worker()
                     return;
                 }
 
+                lastVideoTiming_ = enc.getVideoTiming();
+                lastAudioTiming_ = enc.getAudioTiming();
+
                 rendered_s_ += tInc_ns * 1e-9;
 
                 if(shouldAbort_)
@@ -376,13 +382,16 @@ void VideoProducer::worker()
 
     float scoreBoardTime = std::chrono::duration_cast<std::chrono::microseconds>(tScoreBoardComplete - tWorkerStart_).count() * 1e-6f;
 
+    const float alpha = 0.95f;
     std::map<std::string, float> videoTimes;
 
     for(const auto& outVideo : outVideos_)
     {
         auto tVideoEncStart = std::chrono::high_resolution_clock::now();
 
-        MediaEncoder enc(outVideo.outFile);
+        MediaEncoder enc(outVideo.outFile, useHwEncoder_);
+
+        currentStep_ = std::filesystem::path(outVideo.outFile).stem().string();
 
         auto firstPieceWithSource = std::find_if(outVideo.pieces.begin(), outVideo.pieces.end(), [](const CutVideo::Piece& p){ return !p.sourceFile.empty(); });
         if(firstPieceWithSource == outVideo.pieces.end())
@@ -391,7 +400,7 @@ void VideoProducer::worker()
             continue;
         }
 
-        std::unique_ptr<MediaSource> pSrc = std::make_unique<MediaSource>(firstPieceWithSource->sourceFile, true);
+        std::unique_ptr<MediaSource> pSrc = std::make_unique<MediaSource>(firstPieceWithSource->sourceFile, useHwDecoder_);
         const double frameDelta_s = pSrc->getFrameDeltaTime();
         pSrc->seekTo(0.0);
 
@@ -413,8 +422,23 @@ void VideoProducer::worker()
                 // no source, insert black
                 for(double t = 0.0; t < piece.duration_s; t += frameDelta_s)
                 {
+                    std::chrono::high_resolution_clock::time_point tEncStart = std::chrono::high_resolution_clock::now();
+
                     enc.put(pEmptyFrame);
                     rendered_s_ += frameDelta_s;
+
+                    lastVideoTiming_ = enc.getVideoTiming();
+                    lastAudioTiming_ = enc.getAudioTiming();
+
+                    std::chrono::high_resolution_clock::time_point tEncEnd = std::chrono::high_resolution_clock::now();
+
+                    float totalTime = std::chrono::duration_cast<std::chrono::microseconds>(tEncEnd - tEncStart).count() * 1e-6f;
+                    float decodingTime = 0.0f;
+                    float encodingTime = totalTime;
+
+                    perfTotalTime_ = alpha*perfTotalTime_ + (1.0f-alpha)*totalTime;
+                    perfDecodingTime_ = alpha*perfDecodingTime_ + (1.0f-alpha)*decodingTime;
+                    perfEncodingTime_ = alpha*perfEncodingTime_ + (1.0f-alpha)*encodingTime;
 
                     if(shouldAbort_)
                     {
@@ -427,7 +451,7 @@ void VideoProducer::worker()
             {
                 if(pSrc->getFilename() != piece.sourceFile)
                 {
-                    pSrc = std::make_unique<MediaSource>(piece.sourceFile, true);
+                    pSrc = std::make_unique<MediaSource>(piece.sourceFile, useHwDecoder_);
                 }
 
                 pSrc->seekTo(piece.tStart_s);
@@ -464,19 +488,18 @@ void VideoProducer::worker()
                         break;
                     }
 
+                    lastVideoTiming_ = enc.getVideoTiming();
+                    lastAudioTiming_ = enc.getAudioTiming();
+
                     std::chrono::high_resolution_clock::time_point tEncEnd = std::chrono::high_resolution_clock::now();
 
                     float totalTime = std::chrono::duration_cast<std::chrono::microseconds>(tEncEnd - tDecStart).count() * 1e-6f;
                     float decodingTime = std::chrono::duration_cast<std::chrono::microseconds>(tDecEnd - tDecStart).count() * 1e-6f;
                     float encodingTime = std::chrono::duration_cast<std::chrono::microseconds>(tEncEnd - tDecEnd).count() * 1e-6f;
 
-                    const float alpha = 0.95f;
-
                     perfTotalTime_ = alpha*perfTotalTime_ + (1.0f-alpha)*totalTime;
                     perfDecodingTime_ = alpha*perfDecodingTime_ + (1.0f-alpha)*decodingTime;
                     perfEncodingTime_ = alpha*perfEncodingTime_ + (1.0f-alpha)*encodingTime;
-
-//                    pSrc->seekToNext();
 
                     rendered_s_ += frameDelta_s;
 

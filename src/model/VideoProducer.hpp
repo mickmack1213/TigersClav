@@ -2,6 +2,7 @@
 
 #include "Project.hpp"
 #include "gui/ScoreBoard.hpp"
+#include "data/MediaEncoder.hpp"
 #include <queue>
 
 extern "C" {
@@ -38,6 +39,8 @@ public:
     void addCutVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam);
     void addArchiveVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam);
     void addScoreBoardVideo(std::shared_ptr<GameLog> pGameLog);
+    void useHwDecoder(bool enable) { useHwDecoder_ = enable; }
+    void useHwEncoder(bool enable) { useHwEncoder_ = enable; }
     void start();
 
     void abort() { shouldAbort_ = true; }
@@ -50,6 +53,11 @@ public:
 
     float getElapsedTime() const;
     float getEstimatedTimeLeft() const;
+
+    std::string getCurrentStep() const { return currentStep_; }
+
+    MediaEncoder::Timing getLastVideoTiming() const { return lastVideoTiming_; }
+    MediaEncoder::Timing getLastAudioTiming() const { return lastAudioTiming_; }
 
 private:
     void addCutVideo(const std::shared_ptr<Camera>& pCam, const std::vector<Director::Cut>& finalCut);
@@ -78,4 +86,12 @@ private:
     struct SwsContext* pResizer_;
 
     std::chrono::high_resolution_clock::time_point tWorkerStart_;
+
+    std::string currentStep_;
+
+    MediaEncoder::Timing lastVideoTiming_;
+    MediaEncoder::Timing lastAudioTiming_;
+
+    bool useHwDecoder_;
+    bool useHwEncoder_;
 };

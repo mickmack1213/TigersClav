@@ -14,7 +14,9 @@ TigersClav::TigersClav()
  recordingAutoPlay_(false),
  recordingSliderHovered_(false),
  recordingIndex_(-1),
- exportScoreBoard_(false)
+ exportScoreBoard_(false),
+ exportUseHwDecoder_(true),
+ exportUseHwEncoder_(true)
 {
     glGenTextures(1, &scoreBoardTexture_);
     glGenTextures(1, &fieldVisualizerTexture_);
@@ -345,6 +347,11 @@ void TigersClav::drawProjectPanel()
 
     if(ImGui::CollapsingHeader("Export##Header", ImGuiTreeNodeFlags_None))
     {
+        ImGui::Checkbox("Use HW Decoder", &exportUseHwDecoder_);
+        ImGui::Checkbox("Use HW Encoder", &exportUseHwEncoder_);
+
+        ImGui::Separator();
+
         if(ImGui::Button("Select All"))
         {
             exportScoreBoard_ = true;
@@ -419,6 +426,9 @@ void TigersClav::drawProjectPanel()
                     pVideoProducer_->addArchiveVideo(pProject_->getGameLog(), pCam);
             }
 
+            pVideoProducer_->useHwDecoder(exportUseHwDecoder_);
+            pVideoProducer_->useHwEncoder(exportUseHwEncoder_);
+
             pVideoProducer_->start();
         }
     }
@@ -432,14 +442,32 @@ void TigersClav::drawProjectPanel()
     if(ImGui::BeginPopupModal("Rendering", NULL, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::Text("Progress: %.2f%%, done: %s", pVideoProducer_->getProgress()*100.0f, pVideoProducer_->isDone() ? "yes" : "no");
+        ImGui::Text("File: %s", pVideoProducer_->getCurrentStep().c_str());
         ImGui::Text("Elapsed time:  %.1fs", pVideoProducer_->getElapsedTime());
         ImGui::Text("Time left:     %.1fs", pVideoProducer_->getEstimatedTimeLeft());
+
+        ImGui::Separator();
+
         ImGui::Text("Frame time:    % 7.3fms", pVideoProducer_->getPerfTotalTime()*1e3f);
         ImGui::Text("Decoding time: % 7.3fms (%.2f%%)", pVideoProducer_->getPerfDecodingTime()*1e3f, pVideoProducer_->getPerfDecodingTime()/pVideoProducer_->getPerfTotalTime()*100.0f);
         ImGui::Text("Encoding time: % 7.3fms (%.2f%%)", pVideoProducer_->getPerfEncodingTime()*1e3f, pVideoProducer_->getPerfEncodingTime()/pVideoProducer_->getPerfTotalTime()*100.0f);
 
+        ImGui::Separator();
+        MediaEncoder::Timing vTime = pVideoProducer_->getLastVideoTiming();
+        MediaEncoder::Timing aTime = pVideoProducer_->getLastAudioTiming();
+        ImGui::Text("Video timing:");
+        ImGui::Text("Copy:  %.3fms", vTime.copy*1e3f);
+        ImGui::Text("Send:  %.3fms", vTime.send*1e3f);
+        ImGui::Text("Recv:  %.3fms", vTime.receive*1e3f);
+        ImGui::Text("Write: %.3fms", vTime.write*1e3f);
+        ImGui::Text("Audio timing:");
+        ImGui::Text("Copy:  %.3fms", aTime.copy*1e3f);
+        ImGui::Text("Send:  %.3fms", aTime.send*1e3f);
+        ImGui::Text("Recv:  %.3fms", aTime.receive*1e3f);
+        ImGui::Text("Write: %.3fms", aTime.write*1e3f);
+
         ImGui::SetItemDefaultFocus();
-        if(ImGui::Button("Abort", ImVec2(200, 0)))
+        if(ImGui::Button("Abort", ImVec2(-1.0f, 0)))
         {
             pVideoProducer_->abort();
         }
