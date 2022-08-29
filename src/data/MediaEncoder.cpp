@@ -152,7 +152,7 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
             return false;
         }
 
-        pAudioCodec_ = avcodec_find_encoder_by_name("libmp3lame");
+        pAudioCodec_ = avcodec_find_encoder_by_name("aac");
         if(!pAudioCodec_)
         {
             LOG(ERROR) << "Could not find audio codec";
@@ -266,6 +266,245 @@ void MediaEncoder::close()
     pAudioCodecContext_ = 0;
 }
 
+int MediaEncoder::sendVideoFrame(const AVFrame* pVideo)
+{
+    int result;
+    int64_t videoPtsInc = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
+
+    auto tStart = std::chrono::high_resolution_clock::now();
+
+    AVFrame* pEnc = av_frame_alloc();
+    pEnc->width = pVideo->width;
+    pEnc->height = pVideo->height;
+    pEnc->format = pVideo->format;
+
+    av_frame_get_buffer(pEnc, 0);
+    av_frame_copy(pEnc, pVideo);
+    av_frame_copy_props(pEnc, pVideo);
+
+    auto tCopy = std::chrono::high_resolution_clock::now();
+    videoTiming_.copy = std::chrono::duration_cast<std::chrono::microseconds>(tCopy - tStart).count() * 1e-6f;
+
+    pEnc->pts = curVideoPts_;
+    curVideoPts_ += videoPtsInc;
+
+    LOG_IF(debug_, INFO) << "Encoding video frame. PTS: " << pEnc->pts;
+
+    result = avcodec_send_frame(pVideoCodecContext_, pEnc);
+    if(result < 0)
+    {
+        LOG(ERROR) << "avcodec_send_frame (video) error: " << err2str(result);
+        return -1;
+    }
+
+    av_frame_free(&pEnc);
+
+    auto tSend = std::chrono::high_resolution_clock::now();
+    videoTiming_.send = std::chrono::duration_cast<std::chrono::microseconds>(tSend - tCopy).count() * 1e-6f;
+
+    return 0;
+}
+
+int MediaEncoder::receiveVideoPackets()
+{
+    int result;
+    int64_t videoPtsInc = pVideoStream_->time_base.den * pVideoStream_->r_frame_rate.den / (pVideoStream_->time_base.num * pVideoStream_->r_frame_rate.num);
+
+    while(1)
+    {
+        AVPacketWrapper packet;
+        auto tStart = std::chrono::high_resolution_clock::now();
+
+        result = avcodec_receive_packet(pVideoCodecContext_, packet);
+        if(result == AVERROR(EAGAIN) || result == AVERROR_EOF)
+        {
+            break;
+        }
+        else if(result < 0)
+        {
+            LOG(ERROR) << "Error while receiving packet from encoder (video): " << err2str(result);
+            return -1;
+        }
+
+        auto tReceive = std::chrono::high_resolution_clock::now();
+        videoTiming_.receive = std::chrono::duration_cast<std::chrono::microseconds>(tReceive - tStart).count() * 1e-6f;
+
+        packet->stream_index = pVideoStream_->index;
+        packet->duration = videoPtsInc;
+
+        if(packet->dts > packet->pts)
+            packet->dts = packet->pts - 1000;
+
+        LOG_IF(debug_, INFO) << "   Encoded video frame. PTS: " << packet->pts << ", DTS: " << packet->dts << ", dur: " << packet->duration << ", stream: " << packet->stream_index;
+
+        result = av_interleaved_write_frame(pFormatContext_, packet);
+        if(result < 0)
+        {
+            LOG(ERROR) << "Error while writing frame data: " << err2str(result);
+            return -1;
+        }
+
+        av_packet_unref(packet);
+
+        auto tWrite = std::chrono::high_resolution_clock::now();
+        videoTiming_.write = std::chrono::duration_cast<std::chrono::microseconds>(tWrite - tReceive).count() * 1e-6f;
+    }
+
+    return 0;
+}
+
+int MediaEncoder::sendAudioFrameFromBuffer(bool flush)
+{
+    int result;
+    int audioPtsInc = pAudioStream_->time_base.den / (pAudioStream_->time_base.num * pAudioCodecContext_->sample_rate);
+
+    auto tStart = std::chrono::high_resolution_clock::now();
+
+    int bufferedSamples = 0;
+    for(auto buf : bufferedAudio_)
+    {
+        bufferedSamples += (*buf.pSamples)->nb_samples - buf.firstSample;
+    }
+
+    if(bufferedSamples < pAudioCodecContext_->frame_size && !flush)
+    {
+        // not enough audio samples for a full frame
+        return 0;
+    }
+
+    int encSamples = bufferedSamples;
+    if(encSamples > pAudioCodecContext_->frame_size)
+        encSamples = pAudioCodecContext_->frame_size;
+
+    // we have enough samples to fill an audio frame for encoding
+    const AVFrame* pAudio = *(bufferedAudio_.front().pSamples);
+
+    AVFrame* pAudioBuf = av_frame_alloc();
+    pAudioBuf->nb_samples = encSamples;
+    pAudioBuf->format = pAudio->format;
+    pAudioBuf->sample_rate = pAudio->sample_rate;
+    pAudioBuf->channel_layout = pAudio->channel_layout;
+    pAudioBuf->channels = pAudio->channels;
+    pAudioBuf->pts = curAudioPts_;
+    curAudioPts_ += audioPtsInc * encSamples;
+
+    LOG_IF(debug_, INFO) << "Filling audio frame. PTS: " << pAudioBuf->pts << ", buffered: " << bufferedSamples << ", enc: " << encSamples;
+
+    av_frame_get_buffer(pAudioBuf, 0);
+
+    int samplesLeft = encSamples;
+    int dstOffset = 0;
+    for(auto iter = bufferedAudio_.begin(); iter != bufferedAudio_.end(); )
+    {
+        int copySize = (*iter->pSamples)->nb_samples - iter->firstSample;
+        if(copySize > samplesLeft)
+            copySize = samplesLeft;
+
+        av_samples_copy(pAudioBuf->data, (*iter->pSamples)->data, dstOffset, iter->firstSample, copySize, pAudioBuf->channels, (enum AVSampleFormat)pAudioBuf->format);
+
+        samplesLeft -= copySize;
+        dstOffset += copySize;
+        iter->firstSample += copySize;
+
+        bool remove = iter->firstSample >= (*iter->pSamples)->nb_samples;
+
+        iter++;
+
+        if(remove)
+            bufferedAudio_.pop_front();
+
+        if(samplesLeft <= 0)
+            break;
+    }
+
+    AVFrame* pAudioEnc = av_frame_alloc();
+    pAudioEnc->nb_samples = pAudioBuf->nb_samples;
+    pAudioEnc->format = AV_SAMPLE_FMT_FLTP;
+    pAudioEnc->sample_rate = pAudioBuf->sample_rate;
+    pAudioEnc->channel_layout = pAudioBuf->channel_layout;
+    pAudioEnc->channels = pAudioBuf->channels;
+    pAudioEnc->pts = pAudioBuf->pts;
+
+    LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudioEnc->pts << ", channel_layout: " << pAudioEnc->channel_layout;
+
+    av_frame_get_buffer(pAudioEnc, 0);
+
+    if(pResampler_)
+    {
+        result = swr_convert_frame(pResampler_, pAudioEnc, pAudioBuf);
+        if(result < 0)
+        {
+            LOG(ERROR) << "Audio conversion failed: " << err2str(result);
+            return -1;
+        }
+    }
+    else
+    {
+        av_frame_copy(pAudioEnc, pAudioBuf);
+    }
+
+    auto tCopy = std::chrono::high_resolution_clock::now();
+    audioTiming_.copy = std::chrono::duration_cast<std::chrono::microseconds>(tCopy - tStart).count() * 1e-6f;
+
+    result = avcodec_send_frame(pAudioCodecContext_, pAudioEnc);
+    if(result < 0)
+    {
+        LOG(ERROR) << "avcodec_send_frame (audio) error: " << err2str(result);
+        return -1;
+    }
+
+    av_frame_free(&pAudioBuf);
+    av_frame_free(&pAudioEnc);
+
+    auto tSend = std::chrono::high_resolution_clock::now();
+    audioTiming_.send = std::chrono::duration_cast<std::chrono::microseconds>(tSend - tCopy).count() * 1e-6f;
+
+    return 1;
+}
+
+int MediaEncoder::receiveAudioPackets()
+{
+    int result;
+
+    while(1)
+    {
+        AVPacketWrapper packet;
+        auto tStart = std::chrono::high_resolution_clock::now();
+
+        result = avcodec_receive_packet(pAudioCodecContext_, packet);
+        if(result == AVERROR(EAGAIN) || result == AVERROR_EOF)
+        {
+            break;
+        }
+        else if(result < 0)
+        {
+            LOG(ERROR) << "   Error while receiving packet from encoder (audio): " << err2str(result);
+            return -1;
+        }
+
+        auto tReceive = std::chrono::high_resolution_clock::now();
+        audioTiming_.receive = std::chrono::duration_cast<std::chrono::microseconds>(tReceive - tStart).count() * 1e-6f;
+
+        packet->stream_index = pAudioStream_->index;
+
+        LOG_IF(debug_, INFO) << "   Encoded audio frame. PTS: " << packet->pts << ", DTS: " << packet->dts << ", dur: " << packet->duration << ", stream: " << packet->stream_index;
+
+        result = av_interleaved_write_frame(pFormatContext_, packet);
+        if(result < 0)
+        {
+            LOG(ERROR) << "Error while writing frame data: " << err2str(result);
+            return -1;
+        }
+
+        av_packet_unref(packet);
+
+        auto tWrite = std::chrono::high_resolution_clock::now();
+        audioTiming_.write = std::chrono::duration_cast<std::chrono::microseconds>(tWrite - tReceive).count() * 1e-6f;
+    }
+
+    return 0;
+}
+
 int MediaEncoder::put(std::shared_ptr<const MediaFrame> pFrame)
 {
     int result;
@@ -289,36 +528,9 @@ int MediaEncoder::put(std::shared_ptr<const MediaFrame> pFrame)
 
         if(pVideo)
         {
-            auto tStart = std::chrono::high_resolution_clock::now();
-
-            AVFrame* pEnc = av_frame_alloc();
-            pEnc->width = pVideo->width;
-            pEnc->height = pVideo->height;
-            pEnc->format = pVideo->format;
-
-            av_frame_get_buffer(pEnc, 0);
-            av_frame_copy(pEnc, pVideo);
-            av_frame_copy_props(pEnc, pVideo);
-
-            auto tCopy = std::chrono::high_resolution_clock::now();
-            videoTiming_.copy = std::chrono::duration_cast<std::chrono::microseconds>(tCopy - tStart).count() * 1e-6f;
-
-            pEnc->pts = curVideoPts_;
-            curVideoPts_ += videoPtsInc;
-
-            LOG_IF(debug_, INFO) << "Encoding video frame. PTS: " << pEnc->pts;
-
-            result = avcodec_send_frame(pVideoCodecContext_, pEnc);
+            result = sendVideoFrame(pVideo);
             if(result < 0)
-            {
-                LOG(ERROR) << "avcodec_send_frame (video) error: " << err2str(result);
-                return -1;
-            }
-
-            av_frame_free(&pEnc);
-
-            auto tSend = std::chrono::high_resolution_clock::now();
-            videoTiming_.send = std::chrono::duration_cast<std::chrono::microseconds>(tSend - tCopy).count() * 1e-6f;
+                return result;
         }
         else if(!pFrame)
         {
@@ -327,142 +539,55 @@ int MediaEncoder::put(std::shared_ptr<const MediaFrame> pFrame)
             avcodec_send_frame(pVideoCodecContext_, 0);
         }
 
-        while(1)
-        {
-            AVPacketWrapper packet;
-            auto tStart = std::chrono::high_resolution_clock::now();
-
-            result = avcodec_receive_packet(pVideoCodecContext_, packet);
-            if(result == AVERROR(EAGAIN) || result == AVERROR_EOF)
-            {
-                break;
-            }
-            else if(result < 0)
-            {
-                LOG(ERROR) << "Error while receiving packet from encoder (video): " << err2str(result);
-                return -1;
-            }
-
-            auto tReceive = std::chrono::high_resolution_clock::now();
-            videoTiming_.receive = std::chrono::duration_cast<std::chrono::microseconds>(tReceive - tStart).count() * 1e-6f;
-
-            packet->stream_index = pVideoStream_->index;
-            packet->duration = videoPtsInc;
-
-            if(packet->dts > packet->pts)
-                packet->dts = packet->pts - 1000;
-
-            LOG_IF(debug_, INFO) << "   Encoded video frame. PTS: " << packet->pts << ", DTS: " << packet->dts << ", dur: " << packet->duration << ", stream: " << packet->stream_index;
-
-            result = av_interleaved_write_frame(pFormatContext_, packet);
-            if(result < 0)
-            {
-                LOG(ERROR) << "Error while writing frame data: " << err2str(result);
-                return -1;
-            }
-
-            av_packet_unref(packet);
-
-            auto tWrite = std::chrono::high_resolution_clock::now();
-            videoTiming_.write = std::chrono::duration_cast<std::chrono::microseconds>(tWrite - tReceive).count() * 1e-6f;
-        }
+        result = receiveVideoPackets();
+        if(result < 0)
+            return result;
     }
 
     if(pAudioCodecContext_)
     {
         int audioPtsInc = pAudioStream_->time_base.den / (pAudioStream_->time_base.num * pAudioCodecContext_->sample_rate);
 
-        const AVFrame* pAudio = 0;
-
         if(pFrame && pFrame->pSamples)
-            pAudio = *(pFrame->pSamples);
-
-        if(pAudio)
         {
-            auto tStart = std::chrono::high_resolution_clock::now();
+            bufferedAudio_.push_back((BufferedAudioFrame){pFrame->pSamples, 0});
+        }
 
-            AVFrame* pAudioEnc = av_frame_alloc();
-            pAudioEnc->nb_samples = pAudio->nb_samples;
-            pAudioEnc->format = AV_SAMPLE_FMT_FLTP;
-            pAudioEnc->sample_rate = pAudio->sample_rate;
-            pAudioEnc->channel_layout = pAudio->channel_layout;
-            pAudioEnc->pts = curAudioPts_;
-            curAudioPts_ += audioPtsInc * pAudioEnc->nb_samples;
+        int sendFrameResult = 0;
 
-            LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudioEnc->pts;
-
-            av_frame_get_buffer(pAudioEnc, 0);
-
-            if(pResampler_)
+        do
+        {
+            sendFrameResult = sendAudioFrameFromBuffer(false);
+            if(sendFrameResult < 0)
             {
-                result = swr_convert_frame(pResampler_, pAudioEnc, pAudio);
-                if(result < 0)
-                {
-                    LOG(ERROR) << "Audio conversion failed: " << err2str(result);
-                    return -1;
-                }
+                return sendFrameResult;
             }
             else
             {
-                av_frame_copy(pAudioEnc, pAudio);
+                result = receiveAudioPackets();
+                if(result < 0)
+                    return result;
             }
-
-            auto tCopy = std::chrono::high_resolution_clock::now();
-            audioTiming_.copy = std::chrono::duration_cast<std::chrono::microseconds>(tCopy - tStart).count() * 1e-6f;
-
-            result = avcodec_send_frame(pAudioCodecContext_, pAudioEnc);
-            if(result < 0)
-            {
-                LOG(ERROR) << "avcodec_send_frame (audio) error: " << err2str(result);
-                return -1;
-            }
-
-            av_frame_free(&pAudioEnc);
-
-            auto tSend = std::chrono::high_resolution_clock::now();
-            audioTiming_.send = std::chrono::duration_cast<std::chrono::microseconds>(tSend - tCopy).count() * 1e-6f;
         }
-        else if(!pFrame)
+        while(sendFrameResult > 0);
+
+        if(!pFrame)
         {
             LOG_IF(debug_, INFO) << "Flushing audio encoder.";
 
-            avcodec_send_frame(pAudioCodecContext_, 0);
-        }
-
-        while(1)
-        {
-            AVPacketWrapper packet;
-            auto tStart = std::chrono::high_resolution_clock::now();
-
-            result = avcodec_receive_packet(pAudioCodecContext_, packet);
-            if(result == AVERROR(EAGAIN) || result == AVERROR_EOF)
-            {
-                break;
-            }
-            else if(result < 0)
-            {
-                LOG(ERROR) << "   Error while receiving packet from encoder (audio): " << err2str(result);
-                return -1;
-            }
-
-            auto tReceive = std::chrono::high_resolution_clock::now();
-            audioTiming_.receive = std::chrono::duration_cast<std::chrono::microseconds>(tReceive - tStart).count() * 1e-6f;
-
-            packet->stream_index = pAudioStream_->index;
-
-            LOG_IF(debug_, INFO) << "   Encoded audio frame. PTS: " << packet->pts << ", DTS: " << packet->dts << ", dur: " << packet->duration << ", stream: " << packet->stream_index;
-
-            result = av_interleaved_write_frame(pFormatContext_, packet);
+            result = sendAudioFrameFromBuffer(true);
             if(result < 0)
-            {
-                LOG(ERROR) << "Error while writing frame data: " << err2str(result);
-                return -1;
-            }
+                return result;
 
-            av_packet_unref(packet);
+            result = receiveAudioPackets();
+            if(result < 0)
+                return result;
 
-            auto tWrite = std::chrono::high_resolution_clock::now();
-            audioTiming_.write = std::chrono::duration_cast<std::chrono::microseconds>(tWrite - tReceive).count() * 1e-6f;
+            avcodec_send_frame(pAudioCodecContext_, 0);
+
+            result = receiveAudioPackets();
+            if(result < 0)
+                return result;
         }
     }
 

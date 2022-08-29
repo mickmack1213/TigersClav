@@ -7,6 +7,7 @@ extern "C" {
 #include "MediaFrame.hpp"
 
 #include <string>
+#include <deque>
 
 class MediaEncoder
 {
@@ -29,8 +30,20 @@ public:
     Timing getAudioTiming() const { return audioTiming_; }
 
 private:
+    struct BufferedAudioFrame
+    {
+        std::shared_ptr<AVFrameWrapper> pSamples;
+        int firstSample;
+    };
+
     bool initialize(std::shared_ptr<const MediaFrame> pFrame);
     std::string err2str(int errnum);
+
+    int sendVideoFrame(const AVFrame* pVideo);
+    int receiveVideoPackets();
+
+    int sendAudioFrameFromBuffer(bool flush);
+    int receiveAudioPackets();
 
     bool debug_;
     std::string filename_;
@@ -50,6 +63,7 @@ private:
     AVCodecContext* pAudioCodecContext_;
 
     SwrContext* pResampler_;
+    std::deque<BufferedAudioFrame> bufferedAudio_;
 
     bool useHwEncoder_;
 
