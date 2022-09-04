@@ -84,9 +84,8 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
             av_opt_set(pVideoCodecContext_->priv_data, "preset", "p3", 0);
             av_opt_set(pVideoCodecContext_->priv_data, "profile", "main", 0);
             av_opt_set(pVideoCodecContext_->priv_data, "tune", "ll", 0);
-            av_opt_set(pVideoCodecContext_->priv_data, "rc", "cbr", 0);
+            av_opt_set(pVideoCodecContext_->priv_data, "rc", "vbr", 0);
             av_opt_set(pVideoCodecContext_->priv_data, "rc-lookahead", "10", 0);
-            av_opt_set(pVideoCodecContext_->priv_data, "cbr", "1", 0);
         }
         else
         {
@@ -101,9 +100,9 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
 
         // TODO: make video codec parameters configurable?
         if(pVideo->height < 1200) // 1080p?
-            pVideoCodecContext_->bit_rate = std::min(25 * 1000 * 1000LL, pFrame->videoBitRate);
+            pVideoCodecContext_->bit_rate = std::min(16 * 1000 * 1000LL, pFrame->videoBitRate);
         else // or larger (i.e. 4K)?
-            pVideoCodecContext_->bit_rate = std::min(50 * 1000 * 1000LL, pFrame->videoBitRate);
+            pVideoCodecContext_->bit_rate = std::min(25 * 1000 * 1000LL, pFrame->videoBitRate);
 
         pVideoCodecContext_->time_base = pFrame->videoTimeBase;
         pVideoCodecContext_->framerate = pFrame->videoFramerate;

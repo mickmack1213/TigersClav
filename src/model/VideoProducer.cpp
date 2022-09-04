@@ -95,8 +95,8 @@ void VideoProducer::addArchiveCut(const std::shared_ptr<Camera>& pCam, std::shar
     cutVideo.outFile = outputBaseName_ + "archive-" + pCam->getName() + ".mp4";
 
     Director::Cut dCut;
-    dCut.tStart_ns_ = 0;
-    dCut.tEnd_ns_ = pGameLog->getTotalDuration_ns();
+    dCut.tStart_ns_ = -10e9;
+    dCut.tEnd_ns_ = pGameLog->getTotalDuration_ns() + 30e9;
 
     auto pieces = fillCut(dCut, pCam->getVideos());
     cutVideo.pieces.insert(cutVideo.pieces.end(), pieces.begin(), pieces.end());
