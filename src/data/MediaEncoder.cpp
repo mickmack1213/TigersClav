@@ -100,9 +100,9 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
 
         // TODO: make video codec parameters configurable?
         if(pVideo->height < 1200) // 1080p?
-            pVideoCodecContext_->bit_rate = std::min(16 * 1000 * 1000LL, pFrame->videoBitRate);
+            pVideoCodecContext_->bit_rate = std::min(16 * 1000 * 1000LL, (long long) pFrame->videoBitRate);
         else // or larger (i.e. 4K)?
-            pVideoCodecContext_->bit_rate = std::min(25 * 1000 * 1000LL, pFrame->videoBitRate);
+            pVideoCodecContext_->bit_rate = std::min(25 * 1000 * 1000LL, (long long) pFrame->videoBitRate);
 
         pVideoCodecContext_->time_base = pFrame->videoTimeBase;
         pVideoCodecContext_->framerate = pFrame->videoFramerate;

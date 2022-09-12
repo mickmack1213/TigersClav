@@ -9,6 +9,7 @@ configure_file(src/git_version.h.in ${CMAKE_CURRENT_SOURCE_DIR}/src/git_version.
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_FLAGS "-fpermissive")
 set(CMAKE_C_FLAGS_DEBUG "-Og -g")
 set(CMAKE_CXX_FLAGS_DEBUG "-Og -g")
 
@@ -97,6 +98,5 @@ if(WIN32)
     target_link_libraries(${PROJECT_NAME} glfw3 opengl32 Blend2D::Blend2D ${ZLIB_LIBRARIES} ${Protobuf_LIBRARIES} ${FFMPEG_LIBRARIES} -static)
     target_link_options(${PROJECT_NAME} PRIVATE -mwindows)
 else()
-    add_definitions(-DIMGUI_IMPL_OPENGL_ES2)
-    target_link_libraries(${PROJECT_NAME} glfw GL Blend2D::Blend2D)
+    target_link_libraries(${PROJECT_NAME} glfw GL Blend2D::Blend2D ${ZLIB_LIBRARIES} ${Protobuf_LIBRARIES} ${FFMPEG_LIBRARIES})
 endif()
