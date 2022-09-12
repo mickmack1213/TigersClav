@@ -2,6 +2,10 @@
 #include "util/easylogging++.h"
 #include <iomanip>
 
+extern "C" {
+#include <libavutil/channel_layout.h>
+}
+
 static enum AVPixelFormat getHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts)
 {
     return reinterpret_cast<MediaSource*>(ctx->opaque)->internalGetHwFormat(ctx, pix_fmts);
@@ -207,7 +211,7 @@ MediaSource::MediaSource(std::string filename, bool useHwDecoder, std::string hw
 
     audioPtsInc_ = pAudioStream_->time_base.den / (pAudioStream_->time_base.num * pAudioCodecContext_->sample_rate);
 
-    preloaderThread_ = std::thread(preloader, this);
+    preloaderThread_ = std::thread(&MediaSource::preloader, this);
 
     isLoaded_ = true;
 }

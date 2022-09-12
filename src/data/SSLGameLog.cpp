@@ -27,7 +27,7 @@ SSLGameLog::SSLGameLog(std::string filename, std::set<SSLMessageType> loadMsgTyp
         messagesByType_[msgType] = MsgMap();
     }
 
-    loaderThread_ = std::thread(SSLGameLog::loader, this, filename, loadMsgTypes);
+    loaderThread_ = std::thread(&SSLGameLog::loader, this, filename, loadMsgTypes);
 }
 
 SSLGameLog::~SSLGameLog()

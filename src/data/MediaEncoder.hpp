@@ -55,11 +55,11 @@ private:
     AVFormatContext* pFormatContext_;
 
     AVStream* pVideoStream_;
-    AVCodec* pVideoCodec_;
+    const AVCodec* pVideoCodec_;
     AVCodecContext* pVideoCodecContext_;
 
     AVStream* pAudioStream_;
-    AVCodec* pAudioCodec_;
+    const AVCodec* pAudioCodec_;
     AVCodecContext* pAudioCodecContext_;
 
     SwrContext* pResampler_;
