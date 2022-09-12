@@ -64,13 +64,13 @@ private:
 
     AVFormatContext* pFormatContext_;
 
-    const AVCodec* pVideoCodec_;
+    AVCodec* pVideoCodec_;
     AVStream* pVideoStream_;
     AVCodecContext* pVideoCodecContext_;
     enum AVPixelFormat hwPixFormat_;
     AVBufferRef *pHwDeviceContext_;
 
-    const AVCodec* pAudioCodec_;
+    AVCodec* pAudioCodec_;
     AVStream* pAudioStream_;
     AVCodecContext* pAudioCodecContext_;
 
