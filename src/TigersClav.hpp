@@ -49,7 +49,9 @@ private:
     GLuint scoreBoardTexture_;
     GLuint fieldVisualizerTexture_;
 
-    bool exportScoreBoard_;
+    bool exportScoreBoardCut_;
+    bool exportScoreBoardGoals_;
+    bool exportScoreBoardArchive_;
 
     bool exportUseHwDecoder_;
     bool exportUseHwEncoder_;

@@ -40,15 +40,17 @@ public:
         int64_t tEnd_ns_;
     };
 
-    void orchestrate(const std::vector<RefereeStateChange>& stateChanges, int64_t duration_ns);
+    void orchestrate(const std::vector<RefereeStateChange>& stateChanges, std::vector<int64_t> scoreTimes_ns, int64_t duration_ns);
 
     const std::vector<SceneBlock>& getSceneBlocks() const { return sceneBlocks_; }
     const std::vector<Cut>& getFinalCut() const { return finalCut_; }
+    const std::vector<Cut>& getGoalCut() const { return goalCut_; }
+
+    static SceneState refStateToSceneState(std::shared_ptr<Referee> pRef);
 
 private:
-    SceneState refStateToSceneState(std::shared_ptr<Referee> pRef) const;
-
     std::vector<SceneChange> sceneChanges_;
     std::vector<SceneBlock> sceneBlocks_;
     std::vector<Cut> finalCut_;
+    std::vector<Cut> goalCut_;
 };

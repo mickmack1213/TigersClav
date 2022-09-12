@@ -27,13 +27,110 @@ void GameLog::onGameLogLoaded()
     change.pBefore_ = pGameLog_->convertTo<Referee>(front);
     change.pAfter_ = nullptr;
 
+    uint32_t lastNumGoals = 0;
+    Director::SceneState lastSceneState = Director::SceneState::HALT;
+
+    std::vector<Director::Cut> runningCuts;
+    Director::Cut activeCut {};
+
+    auto geometry = getGeometry();
+    int32_t fieldLength = geometry->field().field_length();
+    int32_t goalWidth = geometry->field().goal_width();
+    int32_t goalDepth = geometry->field().goal_depth();
+
     for(auto iter = pGameLog_->begin(MESSAGE_SSL_REFBOX_2013); iter != pGameLog_->end(MESSAGE_SSL_REFBOX_2013); iter++)
     {
+        const int64_t tNow_ns = iter->first - firstTimestamp_ns;
+
         auto pRef = pGameLog_->convertTo<Referee>(iter);
+
+        // find and store running scenes for precise goal localisation
+        auto sceneState = Director::refStateToSceneState(pRef);
+
+        if(lastSceneState != Director::SceneState::RUNNING && sceneState == Director::SceneState::RUNNING)
+        {
+            activeCut.tStart_ns_ = tNow_ns;
+        }
+
+        if(lastSceneState == Director::SceneState::RUNNING && sceneState != Director::SceneState::RUNNING)
+        {
+            activeCut.tEnd_ns_ = tNow_ns;
+            runningCuts.push_back(activeCut);
+
+            LOG(INFO) << "Added active cut: " << activeCut.tStart_ns_ << " -> " << activeCut.tEnd_ns_;
+        }
+
+        lastSceneState = sceneState;
+
+        // TODO: also store score changes (awarded goals) and possible ball in goal times (by going back the tracker packets)
+        uint32_t goalSum = pRef->yellow().score() + pRef->blue().score();
+
+        if(lastNumGoals != goalSum)
+        {
+            // a goal was just awarded
+            lastNumGoals = goalSum;
+
+            LOG(INFO) << "Goal awarded time: " << tNow_ns;
+            LOG(INFO) << "Buffered running cuts: " << runningCuts.size();
+
+            int64_t goalTime_ns = 0;
+
+            for(auto cutIter = runningCuts.rbegin(); cutIter != runningCuts.rend(); cutIter++)
+            {
+                auto trackerIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_VISION_TRACKER_2020, cutIter->tStart_ns_ + firstTimestamp_ns);
+                while(trackerIter->first < cutIter->tEnd_ns_ + firstTimestamp_ns && trackerIter != pGameLog_->end(MESSAGE_SSL_VISION_TRACKER_2020))
+                {
+                    auto pTracker = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
+
+                    if(pTracker->tracked_frame().balls_size() > 0)
+                    {
+                        auto ballPos = pTracker->tracked_frame().balls(0).pos();
+
+                        bool ballInGoal = std::abs(ballPos.x()*1e3f) > fieldLength/2 && std::abs(ballPos.y()*1e3f) < goalWidth/2;
+                        bool ballInGoalSafe = std::abs(ballPos.x()*1e3f) > (fieldLength/2 + goalDepth*0.2f) && std::abs(ballPos.y()*1e3f) < goalWidth/2;
+
+                        if(ballInGoal)
+                            goalTime_ns = trackerIter->first - firstTimestamp_ns;
+
+                        if(ballInGoalSafe)
+                        {
+                            goalTime_ns = trackerIter->first - firstTimestamp_ns;
+                            LOG(INFO) << "Ball entered goal at " << ballPos.x() << ", " << ballPos.y() << " at time: " << trackerIter->first - firstTimestamp_ns;
+                            break;
+                        }
+                    }
+
+                    trackerIter++;
+                }
+
+                if(goalTime_ns)
+                    break;
+            }
+
+            if(goalTime_ns)
+            {
+                scoreTimes_ns_.push_back(goalTime_ns);
+            }
+            else
+            {
+                if(runningCuts.empty())
+                {
+                    // no goal found, no running cuts??? just take the goal time
+                    scoreTimes_ns_.push_back(tNow_ns);
+                }
+                else
+                {
+                    // no goal found, use end of last running scene before goal awarded
+                    scoreTimes_ns_.push_back(runningCuts.back().tEnd_ns_ - 1000000);
+                }
+            }
+
+            runningCuts.clear();
+        }
 
         if(pRef->stage() != change.pBefore_->stage() || pRef->command() != change.pBefore_->command())
         {
-            change.timestamp_ns_ = iter->first - firstTimestamp_ns;
+            change.timestamp_ns_ = tNow_ns;
             change.pAfter_ = pRef;
 
             stateChanges_.push_back(change);
@@ -44,7 +141,7 @@ void GameLog::onGameLogLoaded()
 
     LOG(INFO) << "Found " << stateChanges_.size() << " state changes";
 
-    director_.orchestrate(stateChanges_, getTotalDuration_ns());
+    director_.orchestrate(stateChanges_, scoreTimes_ns_, getTotalDuration_ns());
 }
 
 int64_t GameLog::getTotalDuration_ns() const

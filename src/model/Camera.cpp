@@ -21,6 +21,7 @@ std::string VideoRecording::getName() const
 Camera::Camera(std::string name)
 :name_(name),
  exportCut_(false),
+ exportGoals_(false),
  exportArchive_(false)
 {
 }

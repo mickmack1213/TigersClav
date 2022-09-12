@@ -35,10 +35,9 @@ public:
     VideoProducer(std::string outputBaseName);
     ~VideoProducer();
 
-    void addAllVideos(std::unique_ptr<Project>& pProject);
     void addCutVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam);
+    void addGoalVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam);
     void addArchiveVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam);
-    void addScoreBoardVideo(std::shared_ptr<GameLog> pGameLog);
     void useHwDecoder(bool enable) { useHwDecoder_ = enable; }
     void useHwEncoder(bool enable) { useHwEncoder_ = enable; }
     void start();
@@ -60,8 +59,8 @@ public:
     MediaEncoder::Timing getLastAudioTiming() const { return lastAudioTiming_; }
 
 private:
-    void addCutVideo(const std::shared_ptr<Camera>& pCam, const std::vector<Director::Cut>& finalCut);
-    void addArchiveCut(const std::shared_ptr<Camera>& pCam, std::shared_ptr<GameLog> pGameLog);
+    void addCutVideo(const std::shared_ptr<Camera>& pCam, const std::vector<Director::Cut>& directorsCut, std::string typeName);
+    void addRenderedVideo(const std::shared_ptr<GameLog>& pGameLog, const std::vector<Director::Cut>& directorsCut, std::string typeName);
     std::vector<CutVideo::Piece> fillCut(const Director::Cut& cut, const std::vector<std::shared_ptr<VideoRecording>>& recordings);
 
     std::shared_ptr<MediaFrame> blImageToMediaFrame(const BLImageData& image);
@@ -72,7 +71,7 @@ private:
     std::string outputBaseName_;
 
     std::vector<CutVideo> outVideos_;
-    RenderedVideo scoreBoardVideo_;
+    std::vector<RenderedVideo> scoreBoardVideos_;
 
     std::thread workThread_;
     std::atomic<bool> workerDone_;

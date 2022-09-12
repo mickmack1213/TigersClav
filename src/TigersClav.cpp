@@ -14,7 +14,9 @@ TigersClav::TigersClav()
  recordingAutoPlay_(false),
  recordingSliderHovered_(false),
  recordingIndex_(-1),
- exportScoreBoard_(false),
+ exportScoreBoardCut_(false),
+ exportScoreBoardGoals_(false),
+ exportScoreBoardArchive_(false),
  exportUseHwDecoder_(true),
  exportUseHwEncoder_(true)
 {
@@ -354,7 +356,9 @@ void TigersClav::drawProjectPanel()
 
         if(ImGui::Button("Select All"))
         {
-            exportScoreBoard_ = true;
+            exportScoreBoardCut_ = true;
+            exportScoreBoardGoals_ = true;
+            exportScoreBoardArchive_ = true;
             for(const auto& pCam : pProject_->getCameras())
             {
                 pCam->exportArchive_ = true;
@@ -366,7 +370,9 @@ void TigersClav::drawProjectPanel()
 
         if(ImGui::Button("Deselect All"))
         {
-            exportScoreBoard_ = false;
+            exportScoreBoardCut_ = false;
+            exportScoreBoardGoals_ = false;
+            exportScoreBoardArchive_ = false;
             for(const auto& pCam : pProject_->getCameras())
             {
                 pCam->exportArchive_ = false;
@@ -374,17 +380,28 @@ void TigersClav::drawProjectPanel()
             }
         }
 
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("Score Board");
-        ImGui::SameLine();
-        ImGui::Checkbox("##export_ScoreBoard", &exportScoreBoard_);
-
-        if(ImGui::BeginTable("tblExport", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+        if(ImGui::BeginTable("tblExport", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
         {
-            ImGui::TableSetupColumn("Cam");
+            ImGui::TableSetupColumn("Source");
             ImGui::TableSetupColumn("Cut");
+            ImGui::TableSetupColumn("Goals");
             ImGui::TableSetupColumn("Archive");
             ImGui::TableHeadersRow();
+
+            ImGui::TableNextRow();
+
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("Score Board");
+
+            ImGui::TableNextColumn();
+            ImGui::Checkbox("##sb_cut", &exportScoreBoardCut_);
+
+            ImGui::TableNextColumn();
+            ImGui::Checkbox("##sb_goals", &exportScoreBoardGoals_);
+
+            ImGui::TableNextColumn();
+            ImGui::Checkbox("##sb_archive", &exportScoreBoardArchive_);
 
             for(const auto& pCam : pProject_->getCameras())
             {
@@ -398,6 +415,9 @@ void TigersClav::drawProjectPanel()
 
                 ImGui::TableNextColumn();
                 ImGui::Checkbox("##export_cut", &pCam->exportCut_);
+
+                ImGui::TableNextColumn();
+                ImGui::Checkbox("##export_goals", &pCam->exportGoals_);
 
                 ImGui::TableNextColumn();
                 ImGui::Checkbox("##export_archive", &pCam->exportArchive_);
@@ -417,13 +437,22 @@ void TigersClav::drawProjectPanel()
 
             pVideoProducer_ = std::make_unique<VideoProducer>(outputBase);
 
-            if(exportScoreBoard_)
-                pVideoProducer_->addScoreBoardVideo(pProject_->getGameLog());
+            if(exportScoreBoardCut_)
+                pVideoProducer_->addCutVideo(pProject_->getGameLog(), nullptr);
+
+            if(exportScoreBoardGoals_)
+                pVideoProducer_->addGoalVideo(pProject_->getGameLog(), nullptr);
+
+            if(exportScoreBoardArchive_)
+                pVideoProducer_->addArchiveVideo(pProject_->getGameLog(), nullptr);
 
             for(const auto& pCam : pProject_->getCameras())
             {
                 if(pCam->exportCut_)
                     pVideoProducer_->addCutVideo(pProject_->getGameLog(), pCam);
+
+                if(pCam->exportGoals_)
+                    pVideoProducer_->addGoalVideo(pProject_->getGameLog(), pCam);
 
                 if(pCam->exportArchive_)
                     pVideoProducer_->addArchiveVideo(pProject_->getGameLog(), pCam);

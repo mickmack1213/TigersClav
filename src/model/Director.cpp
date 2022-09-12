@@ -2,7 +2,7 @@
 #include "util/easylogging++.h"
 #include <iomanip>
 
-void Director::orchestrate(const std::vector<RefereeStateChange>& stateChanges, int64_t duration_ns)
+void Director::orchestrate(const std::vector<RefereeStateChange>& stateChanges, std::vector<int64_t> scoreTimes_ns, int64_t duration_ns)
 {
     // The director will reduce the detailed state changes to simpler SceneStates first and
     // then figure out which parts are worth keeping for the final cut.
@@ -11,6 +11,7 @@ void Director::orchestrate(const std::vector<RefereeStateChange>& stateChanges, 
     sceneChanges_.clear();
     sceneBlocks_.clear();
     finalCut_.clear();
+    goalCut_.clear();
 
     if(stateChanges.empty())
         return;
@@ -158,9 +159,38 @@ void Director::orchestrate(const std::vector<RefereeStateChange>& stateChanges, 
     {
         LOG(INFO) << std::fixed << std::setprecision(4) << "   " << cut.tStart_ns_ * 1e-9 << " => " << cut.tEnd_ns_ * 1e-9;
     }
+
+    // Create goal cut
+    const int64_t timeAfterGoal_ms = 2000;
+    const int64_t timeMaxGoalScene_ms = 4000;
+
+    for(auto scoreTime : scoreTimes_ns)
+    {
+        for(int i = 0; i < sceneBlocks_.size(); i++)
+        {
+            const auto& block = sceneBlocks_[i];
+
+            if(block.tStart_ns_ < scoreTime && scoreTime < block.tEnd_ns_)
+            {
+                // the goal was given within this block
+                int64_t duration_ns = scoreTime - block.tStart_ns_;
+                if(duration_ns > timeMaxGoalScene_ms * 1000000LL)
+                    duration_ns = timeMaxGoalScene_ms * 1000000LL;
+
+                Cut cut;
+                cut.tEnd_ns_ = scoreTime + timeAfterGoal_ms * 1000000LL;
+                cut.tStart_ns_ = scoreTime - duration_ns;
+                goalCut_.push_back(cut);
+
+                LOG(INFO) << "Goal cut. tStart: " << cut.tStart_ns_ * 1e-9 << ", tEnd: " << cut.tEnd_ns_ * 1e-9;
+
+                break;
+            }
+        }
+    }
 }
 
-Director::SceneState Director::refStateToSceneState(std::shared_ptr<Referee> pRef) const
+Director::SceneState Director::refStateToSceneState(std::shared_ptr<Referee> pRef)
 {
     if(!pRef)
         return SceneState::HALT;

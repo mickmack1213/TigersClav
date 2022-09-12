@@ -60,6 +60,7 @@ private:
     std::string preferredTracker_;
 
     std::vector<RefereeStateChange> stateChanges_;
+    std::vector<int64_t> scoreTimes_ns_;
 
     Director director_;
 };

@@ -33,22 +33,6 @@ VideoProducer::~VideoProducer()
         sws_freeContext(pResizer_);
 }
 
-void VideoProducer::addAllVideos(std::unique_ptr<Project>& pProject)
-{
-    const auto& finalCut = pProject->getGameLog()->getDirector().getFinalCut();
-
-    if(finalCut.empty())
-        return;
-
-    addScoreBoardVideo(pProject->getGameLog());
-
-    for(const auto& pCam : pProject->getCameras())
-    {
-        addCutVideo(pCam, finalCut);
-        addArchiveCut(pCam, pProject->getGameLog());
-    }
-}
-
 void VideoProducer::addCutVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam)
 {
     const auto& finalCut = pGameLog->getDirector().getFinalCut();
@@ -56,24 +40,38 @@ void VideoProducer::addCutVideo(std::shared_ptr<GameLog> pGameLog, std::shared_p
     if(finalCut.empty())
         return;
 
-    addCutVideo(pCam, finalCut);
+    if(pCam)
+        addCutVideo(pCam, finalCut, "cut");
+    else
+        addRenderedVideo(pGameLog, finalCut, "cut");
+}
+
+void VideoProducer::addGoalVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam)
+{
+    const auto& goalCut = pGameLog->getDirector().getGoalCut();
+
+    if(goalCut.empty())
+        return;
+
+    if(pCam)
+        addCutVideo(pCam, goalCut, "goals");
+    else
+        addRenderedVideo(pGameLog, goalCut, "goals");
 }
 
 void VideoProducer::addArchiveVideo(std::shared_ptr<GameLog> pGameLog, std::shared_ptr<Camera> pCam)
 {
-    addArchiveCut(pCam, pGameLog);
-}
+    Director::Cut dCut;
+    dCut.tStart_ns_ = -10e9;
+    dCut.tEnd_ns_ = pGameLog->getTotalDuration_ns() + 30e9;
 
-void VideoProducer::addScoreBoardVideo(std::shared_ptr<GameLog> pGameLog)
-{
-    const auto& finalCut = pGameLog->getDirector().getFinalCut();
+    std::vector<Director::Cut> archiveCut;
+    archiveCut.push_back(dCut);
 
-    if(finalCut.empty())
-        return;
-
-    scoreBoardVideo_.sourceFile = pGameLog->getFilename();
-    scoreBoardVideo_.outFile = outputBaseName_ + "ScoreBoard.mp4";
-    scoreBoardVideo_.cut = finalCut;
+    if(pCam)
+        addCutVideo(pCam, archiveCut, "archive");
+    else
+        addRenderedVideo(pGameLog, archiveCut, "archive");
 }
 
 void VideoProducer::start()
@@ -81,7 +79,7 @@ void VideoProducer::start()
     workThread_ = std::thread(&VideoProducer::worker, this);
 }
 
-void VideoProducer::addArchiveCut(const std::shared_ptr<Camera>& pCam, std::shared_ptr<GameLog> pGameLog)
+void VideoProducer::addCutVideo(const std::shared_ptr<Camera>& pCam, const std::vector<Director::Cut>& directorsCut, std::string typeName)
 {
     if(pCam->getVideos().empty())
     {
@@ -92,38 +90,26 @@ void VideoProducer::addArchiveCut(const std::shared_ptr<Camera>& pCam, std::shar
     LOG(INFO) << "Preparing data for camera: " << pCam->getName();
 
     CutVideo cutVideo;
-    cutVideo.outFile = outputBaseName_ + "archive-" + pCam->getName() + ".mp4";
+    cutVideo.outFile = outputBaseName_ + typeName + "-" + pCam->getName() + ".mp4";
 
-    Director::Cut dCut;
-    dCut.tStart_ns_ = -10e9;
-    dCut.tEnd_ns_ = pGameLog->getTotalDuration_ns() + 30e9;
-
-    auto pieces = fillCut(dCut, pCam->getVideos());
-    cutVideo.pieces.insert(cutVideo.pieces.end(), pieces.begin(), pieces.end());
-
-    outVideos_.push_back(cutVideo);
-}
-
-void VideoProducer::addCutVideo(const std::shared_ptr<Camera>& pCam, const std::vector<Director::Cut>& finalCut)
-{
-    if(pCam->getVideos().empty())
-    {
-        LOG(WARNING) << "Camera " << pCam->getName() << " has no videos, skipping.";
-        return;
-    }
-
-    LOG(INFO) << "Preparing data for camera: " << pCam->getName();
-
-    CutVideo cutVideo;
-    cutVideo.outFile = outputBaseName_ + "cut-" + pCam->getName() + ".mp4";
-
-    for(const auto& cut : finalCut)
+    for(const auto& cut : directorsCut)
     {
         auto pieces = fillCut(cut, pCam->getVideos());
         cutVideo.pieces.insert(cutVideo.pieces.end(), pieces.begin(), pieces.end());
     }
 
     outVideos_.push_back(cutVideo);
+}
+
+void VideoProducer::addRenderedVideo(const std::shared_ptr<GameLog>& pGameLog, const std::vector<Director::Cut>& directorsCut, std::string typeName)
+{
+    RenderedVideo renderVideo;
+
+    renderVideo.sourceFile = pGameLog->getFilename();
+    renderVideo.outFile = outputBaseName_ + typeName + "-" + "ScoreBoard.mp4";
+    renderVideo.cut = directorsCut;
+
+    scoreBoardVideos_.push_back(renderVideo);
 }
 
 std::vector<CutVideo::Piece> VideoProducer::fillCut(const Director::Cut& cut, const std::vector<std::shared_ptr<VideoRecording>>& recordings)
@@ -299,23 +285,26 @@ void VideoProducer::worker()
         }
     }
 
-    tWorkerStart_ = std::chrono::high_resolution_clock::now();
-
-    if(!scoreBoardVideo_.sourceFile.empty())
+    for(const auto& renderVideo : scoreBoardVideos_)
     {
-        for(const auto& cut : scoreBoardVideo_.cut)
+        for(const auto& cut : renderVideo.cut)
         {
             totalDuration_s_ += (cut.tEnd_ns_ - cut.tStart_ns_) * 1e-9;
         }
+    }
 
-        GameLog source(scoreBoardVideo_.sourceFile);
+    tWorkerStart_ = std::chrono::high_resolution_clock::now();
 
-        currentStep_ = std::filesystem::path(scoreBoardVideo_.outFile).stem().string();
+    for(const auto& renderVideo : scoreBoardVideos_)
+    {
+        GameLog source(renderVideo.sourceFile);
+
+        currentStep_ = std::filesystem::path(renderVideo.outFile).stem().string();
 
         while(!source.isLoaded())
             std::this_thread::sleep_for(10ms);
 
-        MediaEncoder enc(scoreBoardVideo_.outFile);
+        MediaEncoder enc(renderVideo.outFile);
 
         ScoreBoard board;
 
@@ -331,7 +320,7 @@ void VideoProducer::worker()
 
         const int64_t tInc_ns = 20 * 1000 * 1000LL;
 
-        for(const auto& cut : scoreBoardVideo_.cut)
+        for(const auto& cut : renderVideo.cut)
         {
             for(int64_t t = cut.tStart_ns_; t < cut.tEnd_ns_; t += tInc_ns)
             {
@@ -353,7 +342,7 @@ void VideoProducer::worker()
 
                 if(enc.put(pFrame) < 0)
                 {
-                    LOG(ERROR) << "Encoding score board failed.";
+                    LOG(ERROR) << "Encoding score board failed. " << renderVideo.outFile;
                     return;
                 }
 
@@ -371,6 +360,12 @@ void VideoProducer::worker()
         }
 
         enc.close();
+
+        if(pResizer_)
+        {
+            sws_freeContext(pResizer_);
+            pResizer_ = 0;
+        }
     }
 
     auto tScoreBoardComplete = std::chrono::high_resolution_clock::now();
