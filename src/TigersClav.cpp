@@ -433,7 +433,7 @@ void TigersClav::drawProjectPanel()
             pProject_->sync();
 
             auto projectPath = std::filesystem::path(pProject_->getFilename());
-            std::string outputBase = projectPath.parent_path().string() + "/" + projectPath.stem().string() + "_";
+            std::string outputBase = (pProject_->getFilename().empty() ? "" : projectPath.parent_path().string() + "/") + projectPath.stem().string() + "_";
 
             pVideoProducer_ = std::make_unique<VideoProducer>(outputBase);
 
