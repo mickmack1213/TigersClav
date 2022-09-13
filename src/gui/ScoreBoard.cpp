@@ -32,24 +32,24 @@ void ScoreBoard::update(const std::shared_ptr<Referee>& pRef)
 
     // Background
     ctx_.setFillStyle(BLRgba32(0xFF111111));
-    ctx_.fillTriangle(0, 110, 20, 40, 20, 110);
-    ctx_.fillTriangle(1200, 110, 1180, 40, 1180, 110);
-    ctx_.fillRect(20, 40, 1160, 70);
+    ctx_.fillTriangle(0, 0, 20, 70, 20, 0);
+    ctx_.fillTriangle(1200, 0, 1180, 70, 1180, 0);
+    ctx_.fillRect(20, 0, 1160, 70);
 
     // Team names
-    drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(300, 75), BLPoint(900, 75), BLSize(400, 70));
+    drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(300, 35), BLPoint(900, 35), BLSize(400, 70));
 
     // Score
-    centeredText(BLPoint(525, 75), std::to_string(pRef->yellow().score()).c_str(), boldFontFace_, 70, BLRgba32(0xFFDDDDDD));
-    centeredText(BLPoint(675, 75), std::to_string(pRef->blue().score()).c_str(), boldFontFace_, 70, BLRgba32(0xFFDDDDDD));
+    centeredText(BLPoint(525, 35), std::to_string(pRef->yellow().score()).c_str(), boldFontFace_, 70, BLRgba32(0xFFDDDDDD));
+    centeredText(BLPoint(675, 35), std::to_string(pRef->blue().score()).c_str(), boldFontFace_, 70, BLRgba32(0xFFDDDDDD));
 
     // Cards
     int yellowCards[2] = { pRef->yellow().yellow_card_times().size(), pRef->blue().yellow_card_times().size() };
     unsigned int redCards[2] = { pRef->yellow().red_cards(), pRef->blue().red_cards() };
-    drawCard(CardColor::RED, redCards[0], BLPoint(24, 50));
-    drawCard(CardColor::YELLOW, yellowCards[0], BLPoint(64, 50));
-    drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(1100, 50));
-    drawCard(CardColor::RED, redCards[1], BLPoint(1140, 50));
+    drawCard(CardColor::RED, redCards[0], BLPoint(24, 10));
+    drawCard(CardColor::YELLOW, yellowCards[0], BLPoint(64, 10));
+    drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(1100, 10));
+    drawCard(CardColor::RED, redCards[1], BLPoint(1140, 10));
 
     // Stage time
     if(hasStageTimeLeft(pRef->stage()))
@@ -64,7 +64,7 @@ void ScoreBoard::update(const std::shared_ptr<Referee>& pRef)
 
         char buf[6];
         snprintf(buf, sizeof(buf), "%2d:%02d", time_min, time_s);
-        centeredText(BLPoint(600, 75), buf, regularFontFace_, 30.0f, BLRgba32(0xFFDDDDDD));
+        centeredText(BLPoint(600, 35), buf, regularFontFace_, 30.0f, BLRgba32(0xFFDDDDDD));
     }
 
     // Stage
@@ -106,12 +106,12 @@ void ScoreBoard::drawStage(Referee::Stage stage, Referee::Command command, std::
         ctx_.setFillStyle(bgColor);
     }
 
-    ctx_.fillRect(400, 0, 400, 40);
-    ctx_.fillTriangle(400, 0, 400, 40, 390, 40);
-    ctx_.fillTriangle(800, 0, 800, 40, 810, 40);
+    ctx_.fillRect(400, 70, 400, 40);
+    ctx_.fillTriangle(400, 110, 400, 70, 390, 70);
+    ctx_.fillTriangle(800, 110, 800, 70, 810, 70);
 
     if(command == standard) {
-        centeredText(BLPoint(600, 20), stageText.c_str(), regularFontFace_, 30.0f, BLRgba32(0xFFDDDDDD));
+        centeredText(BLPoint(600, 90), stageText.c_str(), regularFontFace_, 30.0f, BLRgba32(0xFFDDDDDD));
     } else {
         if(actionTimeLeft_us && *actionTimeLeft_us > 0)
         {
@@ -124,7 +124,7 @@ void ScoreBoard::drawStage(Referee::Stage stage, Referee::Command command, std::
             commandText += " (" + std::to_string(time_s) + "s)";
         }
 
-        centeredText(BLPoint(600, 20), commandText.c_str(), regularFontFace_, 30.0f, textColor);
+        centeredText(BLPoint(600, 90), commandText.c_str(), regularFontFace_, 30.0f, textColor);
     }
 }
 
