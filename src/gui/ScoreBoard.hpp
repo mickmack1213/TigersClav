@@ -21,7 +21,7 @@ private:
         RED
     };
 
-    void drawCard(CardColor color, unsigned int amount, BLPoint pos, BLSize size = BLSize(36, 50));
+    void drawCard(CardColor color, unsigned int amount, BLPoint pos, int direction);
 
     void drawTeamNames(const std::string& team1, const std::string& team2, BLPoint pos1, BLPoint pos2, BLSize maxSize);
     void drawStage(Referee::Stage stage, Referee::Command command, std::optional<int> actionTimeLeft_us);

@@ -32,9 +32,9 @@ void ScoreBoard::update(const std::shared_ptr<Referee>& pRef)
 
     // Background
     ctx_.setFillStyle(BLRgba32(0xFF111111));
-    ctx_.fillTriangle(0, 0, 20, 70, 20, 0);
-    ctx_.fillTriangle(1200, 0, 1180, 70, 1180, 0);
-    ctx_.fillRect(20, 0, 1160, 70);
+    ctx_.fillTriangle(80, 0, 100, 70, 100, 0);
+    ctx_.fillTriangle(1120, 0, 1100, 70, 1100, 0);
+    ctx_.fillRect(100, 0, 1000, 70);
 
     // Team names
     drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(300, 35), BLPoint(900, 35), BLSize(400, 70));
@@ -46,10 +46,10 @@ void ScoreBoard::update(const std::shared_ptr<Referee>& pRef)
     // Cards
     int yellowCards[2] = { pRef->yellow().yellow_card_times().size(), pRef->blue().yellow_card_times().size() };
     unsigned int redCards[2] = { pRef->yellow().red_cards(), pRef->blue().red_cards() };
-    drawCard(CardColor::RED, redCards[0], BLPoint(24, 10));
-    drawCard(CardColor::YELLOW, yellowCards[0], BLPoint(64, 10));
-    drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(1100, 10));
-    drawCard(CardColor::RED, redCards[1], BLPoint(1140, 10));
+    drawCard(CardColor::RED, redCards[0], BLPoint(yellowCards[0] > 0 ? 30 : 70, 35), -1);
+    drawCard(CardColor::YELLOW, yellowCards[0], BLPoint(70, 35), -1);
+    drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(1130, 35), 1);
+    drawCard(CardColor::RED, redCards[1], BLPoint(yellowCards[1] > 0 ? 1170 : 1130, 35), 1);
 
     // Stage time
     if(hasStageTimeLeft(pRef->stage()))
@@ -159,34 +159,18 @@ void ScoreBoard::drawTeamNames(const std::string& team1, const std::string& team
     ctx_.fillGlyphRun(BLPoint(pos2.x-nameWidths[1]/2, pos2.y + fontHeight/2 - fontOffset), regularFont, gb[1].glyphRun());
 }
 
-void ScoreBoard::drawCard(CardColor color, unsigned int amount, BLPoint pos, BLSize size)
+void ScoreBoard::drawCard(CardColor color, unsigned int amount, BLPoint pos, int direction)
 {
     if(amount == 0)
         return;
 
-    BLGradient gradient(BLLinearGradientValues(pos.x, pos.y, pos.x+size.w*0.8, pos.y+size.h));
-
-    if(color == CardColor::YELLOW)
-    {
-        gradient.addStop(0.0, BLRgba32(0xFFFFFF80));
-        gradient.addStop(1.0, BLRgba32(0xFFFFFF00));
-    }
-    else
-    {
-        gradient.addStop(0.0, BLRgba32(0xFFFF8080));
-        gradient.addStop(1.0, BLRgba32(0xFFFF0000));
-    }
-
-    ctx_.setFillStyle(gradient);
-    ctx_.fillRoundRect(pos.x, pos.y, size.w, size.h, size.h*0.1);
-
-    ctx_.setStrokeStyle(BLRgba32(0xFF000000));
-    ctx_.setStrokeWidth(1);
-    ctx_.strokeRoundRect(pos.x, pos.y, size.w, size.h, size.h*0.1);
+    ctx_.setFillStyle(BLRgba32(color == CardColor::YELLOW ? 0xFFFFFF00 : 0xFFFF0000));
+    ctx_.fillTriangle(pos.x + direction*-30, pos.y+35, pos.x + direction*-10, pos.y-35, pos.x + direction*10, pos.y+35);
+    ctx_.fillTriangle(pos.x + direction*30, pos.y-35, pos.x + direction*-10, pos.y-35, pos.x + direction*10, pos.y+35);
 
     if(amount > 1)
     {
-        centeredText(BLPoint(pos.x+size.w/2, pos.y+size.h/2), std::to_string(amount).c_str(), boldFontFace_, (float)size.h, BLRgba32(0xFF111111));
+        centeredText(pos, std::to_string(amount).c_str(), boldFontFace_, 40.0f, BLRgba32(0xFF111111));
     }
 }
 
