@@ -9,6 +9,23 @@
 #define MAIN_CENTER (STAGE_HEIGHT + HALF_MAIN_HEIGHT)
 #define SMALL_TEXT (STAGE_HEIGHT - 10)
 
+#define CURVE_WIDTH 20
+#define HALF_CURVE_WIDTH (CURVE_WIDTH / 2.0f)
+#define TEAM_NAME_WIDTH 380
+#define SCORE_WIDTH 200
+#define FULL_WIDTH ((CURVE_WIDTH + TEAM_NAME_WIDTH) * 2 + SCORE_WIDTH)
+#define HALF_WIDTH (FULL_WIDTH / 2.0f)
+#define TEAM_NAME_CENTER (CURVE_WIDTH + TEAM_NAME_WIDTH/2.0f)
+
+#define STAGE_WIDTH 300
+#define HALF_STAGE_WIDTH (STAGE_WIDTH / 2)
+#define CARD_OFFSET (HALF_STAGE_WIDTH + CURVE_WIDTH)
+#define CARD_WIDTH 40
+
+#define COLOR_DARK BLRgba32(0xFF333333)
+#define COLOR_LIGHT BLRgba32(0xFFDDDDDD)
+
+
 static double textWidth(const BLFont &font, BLGlyphBuffer& gb)
 {
     BLTextMetrics tm{};
@@ -18,7 +35,7 @@ static double textWidth(const BLFont &font, BLGlyphBuffer& gb)
 
 ScoreBoard::ScoreBoard()
 {
-    BLResult blResult = regularFontFace_.createFromFile("fonts/Palanquin-Regular.ttf");
+    BLResult blResult = regularFontFace_.createFromFile("fonts/Palanquin-Bold.ttf");
     if(blResult)
         throw std::runtime_error("Regular font not found");
 
@@ -26,7 +43,7 @@ ScoreBoard::ScoreBoard()
     if(blResult)
         throw std::runtime_error("Bold font not found");
 
-    gamestateImage_.create(1200, FULL_HEIGHT, BL_FORMAT_PRGB32);
+    gamestateImage_.create(FULL_WIDTH, FULL_HEIGHT, BL_FORMAT_PRGB32);
 
     update(std::make_shared<Referee>());
 }
@@ -57,37 +74,44 @@ void ScoreBoard::update(const std::shared_ptr<Referee>& pRef)
     // Cards
     int yellowCards[2] = { pRef->yellow().yellow_card_times().size(), pRef->blue().yellow_card_times().size() };
     unsigned int redCards[2] = { pRef->yellow().red_cards(), pRef->blue().red_cards() };
-    drawCard(CardColor::RED, redCards[0], BLPoint(yellowCards[0] > 0 ? 200 : 275, HALF_STAGE_HEIGHT), 1);
-    drawCard(CardColor::RED, redCards[1], BLPoint(yellowCards[1] > 0 ? 1000 : 925, HALF_STAGE_HEIGHT), -1);
-    drawCard(CardColor::YELLOW, yellowCards[0], BLPoint(275, HALF_STAGE_HEIGHT), 1);
-    drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(925, HALF_STAGE_HEIGHT), -1);
+    drawCard(CardColor::RED, redCards[0], BLPoint(HALF_WIDTH - CARD_OFFSET - (yellowCards[0] > 0 ? 2 : 1) * CARD_WIDTH, HALF_STAGE_HEIGHT), 1);
+    drawCard(CardColor::RED, redCards[1], BLPoint(HALF_WIDTH + CARD_OFFSET + (yellowCards[1] > 0 ? 2 : 1) * CARD_WIDTH, HALF_STAGE_HEIGHT), -1);
+    drawCard(CardColor::YELLOW, yellowCards[0], BLPoint(HALF_WIDTH - CARD_OFFSET - CARD_WIDTH, HALF_STAGE_HEIGHT), 1);
+    drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(HALF_WIDTH + CARD_OFFSET + CARD_WIDTH, HALF_STAGE_HEIGHT), -1);
 
     // Background
-    BLGradient gradient(BLRadialGradientValues(600, -1000, 600, 0, 1300));
-    gradient.addStop(0.3, command == standard ? BLRgba32(0xFF111111) : bgColor);
-    gradient.addStop(0.5, BLRgba32(0xFF111111));
-    ctx_.setFillStyle(gradient);
+    BLGradient gradient(BLLinearGradientValues(HALF_WIDTH, STAGE_HEIGHT, HALF_WIDTH, FULL_HEIGHT));
+    gradient.addStop(0.0, COLOR_DARK);
+    gradient.addStop(1.0, BLRgba32(0xFF111111));
 
-    BLPath path;
-    path.moveTo(100, FULL_HEIGHT);
-    path.quadTo(150, STAGE_HEIGHT, 200, STAGE_HEIGHT);
-    path.lineTo(350, STAGE_HEIGHT);
-    path.cubicTo(400, STAGE_HEIGHT, 400, 0, 450, 0);
-    path.lineTo(750, 0);
-    path.cubicTo(800, 0, 800, STAGE_HEIGHT, 850, STAGE_HEIGHT);
-    path.lineTo(1000, STAGE_HEIGHT);
-    path.quadTo(1050, STAGE_HEIGHT, 1100, FULL_HEIGHT);
-    ctx_.fillPath(path);
+    ctx_.setFillStyle(gradient);
+    BLPath background;
+    background.moveTo(0, FULL_HEIGHT);
+    background.quadTo(HALF_CURVE_WIDTH, STAGE_HEIGHT, CURVE_WIDTH, STAGE_HEIGHT);
+    background.lineTo(FULL_WIDTH - CURVE_WIDTH, STAGE_HEIGHT);
+    background.quadTo(FULL_WIDTH - HALF_CURVE_WIDTH, STAGE_HEIGHT, FULL_WIDTH, FULL_HEIGHT);
+    ctx_.fillPath(background);
+
+    ctx_.setFillStyle(command == standard ? COLOR_DARK : bgColor);
+    BLPath stateBackground;
+    stateBackground.moveTo(HALF_WIDTH - CARD_OFFSET, STAGE_HEIGHT);
+    stateBackground.cubicTo(HALF_WIDTH - HALF_STAGE_WIDTH - HALF_CURVE_WIDTH, STAGE_HEIGHT, HALF_WIDTH - HALF_STAGE_WIDTH - HALF_CURVE_WIDTH, 0, HALF_WIDTH - HALF_STAGE_WIDTH, 0);
+    stateBackground.lineTo(HALF_WIDTH + HALF_STAGE_WIDTH, 0);
+    stateBackground.cubicTo(HALF_WIDTH + HALF_STAGE_WIDTH + HALF_CURVE_WIDTH, 0, HALF_WIDTH + HALF_STAGE_WIDTH + HALF_CURVE_WIDTH, STAGE_HEIGHT, HALF_WIDTH + CARD_OFFSET, STAGE_HEIGHT);
+    ctx_.fillPath(stateBackground);
+    ctx_.setStrokeWidth(1.0);
+    ctx_.setStrokeStyle(COLOR_DARK);
+    ctx_.strokePath(stateBackground);
 
     // Team names
-    drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(300, MAIN_CENTER), BLPoint(900, MAIN_CENTER), BLSize(350, MAIN_HEIGHT));
+    drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(TEAM_NAME_CENTER, MAIN_CENTER), BLPoint(FULL_WIDTH - TEAM_NAME_CENTER, MAIN_CENTER), BLSize(TEAM_NAME_WIDTH, MAIN_HEIGHT));
 
     // Score
-    centeredText(BLPoint(525, MAIN_CENTER), std::to_string(pRef->yellow().score()).c_str(), boldFontFace_, MAIN_HEIGHT, textColor);
-    centeredText(BLPoint(675, MAIN_CENTER), std::to_string(pRef->blue().score()).c_str(), boldFontFace_, MAIN_HEIGHT, textColor);
+    centeredText(BLPoint(HALF_WIDTH - 75, MAIN_CENTER), std::to_string(pRef->yellow().score()).c_str(), boldFontFace_, MAIN_HEIGHT, COLOR_LIGHT);
+    centeredText(BLPoint(HALF_WIDTH + 75, MAIN_CENTER), std::to_string(pRef->blue().score()).c_str(), boldFontFace_, MAIN_HEIGHT, COLOR_LIGHT);
 
     // Stage time
-    drawTime(pRef->stage(), textColor, pRef->stage_time_left());
+    drawTime(pRef->stage(), COLOR_LIGHT, pRef->stage_time_left());
 
     // Stage
     drawStage(stageText, commandText, standard, command, textColor, pRef->current_action_time_remaining());
@@ -108,14 +132,14 @@ void ScoreBoard::drawStage(const std::string& stageText, std::string& commandTex
 {
     if(command == standard)
     {
-        centeredText(BLPoint(600, HALF_STAGE_HEIGHT), stageText.c_str(), regularFontFace_, SMALL_TEXT, BLRgba32(0xFFDDDDDD));
+        centeredText(BLPoint(HALF_WIDTH, HALF_STAGE_HEIGHT), stageText.c_str(), regularFontFace_, SMALL_TEXT, COLOR_LIGHT);
     }
     else
     {
         if(hasActionTimeLeft(command) && time_us > 0)
             commandText += " (" + std::to_string(time_us / 1000000) + "s)";
 
-        centeredText(BLPoint(600, HALF_STAGE_HEIGHT), commandText.c_str(), regularFontFace_, SMALL_TEXT, textColor);
+        centeredText(BLPoint(HALF_WIDTH, HALF_STAGE_HEIGHT), commandText.c_str(), regularFontFace_, SMALL_TEXT, textColor);
     }
 }
 
@@ -158,24 +182,26 @@ void ScoreBoard::drawCard(CardColor color, unsigned int amount, BLPoint pos, int
     ctx_.setFillStyle(BLRgba32(color == CardColor::YELLOW ? 0xFFFFFF00 : 0xFFFF0000));
     BLPath path;
     path.moveTo(pos.x, STAGE_HEIGHT);
-    path.cubicTo(pos.x + direction*50, STAGE_HEIGHT, pos.x + direction*50, 0, pos.x + direction*100, 0);
-    path.lineTo(pos.x + direction*+175, 0);
-    path.lineTo(pos.x + direction*+175, STAGE_HEIGHT);
+    path.cubicTo(pos.x + direction*10, STAGE_HEIGHT, pos.x + direction*10, 0, pos.x + direction*20, 0);
+    path.lineTo(pos.x + direction*60, 0);
+    path.lineTo(pos.x + direction*60, STAGE_HEIGHT);
     ctx_.fillPath(path);
+    ctx_.setStrokeStyle(COLOR_DARK);
+    ctx_.setStrokeWidth(1.0);
+    ctx_.strokePath(path);
 
     if(amount > 1)
     {
-        centeredText(BLPoint(pos.x + direction*87.5, pos.y), std::to_string(amount).c_str(), boldFontFace_, HALF_MAIN_HEIGHT, BLRgba32(0xFF111111));
+        centeredText(BLPoint(pos.x + direction*30, pos.y), std::to_string(amount).c_str(), boldFontFace_, SMALL_TEXT, COLOR_DARK);
     }
 }
 
 void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::string &commandText, BLRgba32 &bgColor, BLRgba32 &textColor) {
-    bgColor = BLRgba32(0xFF444444);
-    textColor = BLRgba32(0xFFDDDDDD);
+    bgColor = COLOR_DARK;
+    textColor = COLOR_LIGHT;
 
     BLRgba32 yellow(0xFFFFFF00);
     BLRgba32 blue(0xFF0000FF);
-    BLRgba32 darkText(0xFF111111);
 
     switch(command)
     {
@@ -194,12 +220,11 @@ void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::str
         case Referee_Command_INDIRECT_FREE_YELLOW:
         case Referee_Command_INDIRECT_FREE_BLUE:
             commandText = "Running";
-            bgColor = BLRgba32(0xFF111111);
             break;
         case Referee_Command_PREPARE_KICKOFF_YELLOW:
             bgColor = yellow;
             commandText = "Kickoff";
-            textColor = darkText;
+            textColor = COLOR_DARK;
             break;
         case Referee_Command_PREPARE_KICKOFF_BLUE:
             bgColor = blue;
@@ -208,7 +233,7 @@ void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::str
         case Referee_Command_PREPARE_PENALTY_YELLOW:
             bgColor = yellow;
             commandText = "Penalty";
-            textColor = darkText;
+            textColor = COLOR_DARK;
             break;
         case Referee_Command_PREPARE_PENALTY_BLUE:
             bgColor = blue;
@@ -217,7 +242,7 @@ void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::str
         case Referee_Command_TIMEOUT_YELLOW:
             bgColor = yellow;
             commandText = "Timeout";
-            textColor = darkText;
+            textColor = COLOR_DARK;
             break;
         case Referee_Command_TIMEOUT_BLUE:
             bgColor = blue;
@@ -226,7 +251,7 @@ void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::str
         case Referee_Command_GOAL_YELLOW:
             bgColor = yellow;
             commandText = "Goal";
-            textColor = darkText;
+            textColor = COLOR_DARK;
             break;
         case Referee_Command_GOAL_BLUE:
             bgColor = blue;
@@ -235,7 +260,7 @@ void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::str
         case Referee_Command_BALL_PLACEMENT_YELLOW:
             bgColor = yellow;
             commandText = "Ball Placement";
-            textColor = darkText;
+            textColor = COLOR_DARK;
             break;
         case Referee_Command_BALL_PLACEMENT_BLUE:
             bgColor = blue;
@@ -373,6 +398,6 @@ void ScoreBoard::drawTime(Referee::Stage stage, const BLRgba32& textColor, int t
 
         char buf[6];
         snprintf(buf, sizeof(buf), "%2d:%02d", time_min, time_s);
-        centeredText(BLPoint(600, MAIN_CENTER), buf, regularFontFace_, SMALL_TEXT, textColor);
+        centeredText(BLPoint(HALF_WIDTH, MAIN_CENTER), buf, regularFontFace_, SMALL_TEXT, textColor);
     }
 }
