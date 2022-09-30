@@ -306,7 +306,7 @@ void VideoProducer::worker()
 
         MediaEncoder enc(renderVideo.outFile);
 
-        ScoreBoard board;
+        FancyScoreBoard board;
 
         auto imgData = board.getImageData();
 

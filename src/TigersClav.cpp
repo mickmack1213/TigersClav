@@ -23,7 +23,7 @@ TigersClav::TigersClav()
     glGenTextures(1, &scoreBoardTexture_);
     glGenTextures(1, &fieldVisualizerTexture_);
 
-    pScoreBoard_ = std::make_unique<ScoreBoard>();
+    pScoreBoard_ = std::make_unique<FancyScoreBoard>();
     pFieldVisualizer_ = std::make_unique<FieldVisualizer>();
     pImageComposer_ = std::make_unique<ImageComposer>(ImVec2(3840, 2160));
 
