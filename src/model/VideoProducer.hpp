@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Project.hpp"
-#include "gui/ScoreBoard.hpp"
+#include "gui/AScoreBoard.hpp"
 #include "data/MediaEncoder.hpp"
 #include <queue>
 

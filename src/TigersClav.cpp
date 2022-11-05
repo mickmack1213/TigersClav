@@ -2,6 +2,7 @@
 #include "ImGuiFileDialog.h"
 #include "LogViewer.hpp"
 #include "data/MediaEncoder.hpp"
+#include "gui/FancyScoreBoard.hpp"
 #include <filesystem>
 #include <chrono>
 

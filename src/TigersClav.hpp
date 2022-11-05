@@ -4,7 +4,7 @@
 
 #include "model/Project.hpp"
 #include "gui/ImageComposer.hpp"
-#include "gui/ScoreBoard.hpp"
+#include "gui/AScoreBoard.hpp"
 #include "gui/FieldVisualizer.hpp"
 #include "util/ShaderProgram.hpp"
 #include "data/MediaSource.hpp"
@@ -26,7 +26,7 @@ private:
 
     std::unique_ptr<Project> pProject_;
     std::unique_ptr<ImageComposer> pImageComposer_;
-    std::unique_ptr<ScoreBoard> pScoreBoard_;
+    std::unique_ptr<AScoreBoard> pScoreBoard_;
     std::unique_ptr<FieldVisualizer> pFieldVisualizer_;
     std::unique_ptr<VideoProducer> pVideoProducer_;
 

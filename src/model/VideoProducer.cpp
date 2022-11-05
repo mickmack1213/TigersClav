@@ -1,6 +1,7 @@
 #include "VideoProducer.hpp"
 #include "util/easylogging++.h"
 #include "data/MediaSource.hpp"
+#include "gui/FancyScoreBoard.hpp"
 #include <filesystem>
 
 extern "C" {
