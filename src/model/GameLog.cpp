@@ -182,9 +182,9 @@ void GameLog::seekToPrevious()
 
 std::optional<GameLog::Entry> GameLog::get()
 {
-    if(!pGameLog_->isLoaded() ||
-       pGameLog_->isEmpty(MESSAGE_SSL_VISION_TRACKER_2020) ||
-       pGameLog_->isEmpty(MESSAGE_SSL_REFBOX_2013))
+    bool hasTrackerOrDetectionMsgs = !pGameLog_->isEmpty(MESSAGE_SSL_VISION_TRACKER_2020) || !pGameLog_->isEmpty(MESSAGE_SSL_VISION_2014);
+
+    if(!pGameLog_->isLoaded() || !hasTrackerOrDetectionMsgs)
         return std::optional<GameLog::Entry>();
 
     if(refereeIter_ == pGameLog_->end(MESSAGE_SSL_REFBOX_2013))
@@ -192,31 +192,38 @@ std::optional<GameLog::Entry> GameLog::get()
 
     const int64_t tGameLog_ns = refereeIter_->first;
 
-    auto trackerIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_VISION_TRACKER_2020, tGameLog_ns);
-
-    if(trackerIter == pGameLog_->end(MESSAGE_SSL_VISION_TRACKER_2020))
-        return std::optional<GameLog::Entry>();
-
     GameLog::Entry entry;
     entry.timestamp_ns_ = refereeIter_->first - pGameLog_->getFirstTimestamp_ns();
     entry.pReferee_ = pGameLog_->convertTo<Referee>(refereeIter_);
-    entry.pTracker_ = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
 
-    if(!entry.pReferee_ || !entry.pTracker_)
-        return std::optional<GameLog::Entry>();
+    auto trackerIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_VISION_TRACKER_2020, tGameLog_ns);
+    auto detectionIter = pGameLog_->findLastMsgBeforeTimestamp(MESSAGE_SSL_VISION_2014, tGameLog_ns);
 
-    trackerSources_[entry.pTracker_->uuid()] = entry.pTracker_->has_source_name() ? entry.pTracker_->source_name() : "Unknown";
-
-    while(trackerIter != pGameLog_->end(MESSAGE_SSL_VISION_TRACKER_2020) && !preferredTracker_.empty() && entry.pTracker_->uuid() != preferredTracker_)
+    if(trackerIter != pGameLog_->end(MESSAGE_SSL_VISION_TRACKER_2020))
     {
         entry.pTracker_ = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
-        if(!entry.pTracker_)
-            break;
 
-        trackerIter++;
+        if(entry.pTracker_)
+        {
+            trackerSources_[entry.pTracker_->uuid()] = entry.pTracker_->has_source_name() ? entry.pTracker_->source_name() : "Unknown";
+
+            while(trackerIter != pGameLog_->end(MESSAGE_SSL_VISION_TRACKER_2020) && !preferredTracker_.empty() && entry.pTracker_->uuid() != preferredTracker_)
+            {
+                entry.pTracker_ = pGameLog_->convertTo<TrackerWrapperPacket>(trackerIter);
+                if(!entry.pTracker_)
+                    break;
+
+                trackerIter++;
+            }
+        }
     }
 
-    if(!entry.pTracker_)
+    if(detectionIter != pGameLog_->end(MESSAGE_SSL_VISION_2014))
+    {
+        entry.pDetection_ = std::make_shared<SSL_DetectionFrame>(pGameLog_->convertTo<SSL_WrapperPacket>(detectionIter)->detection());
+    }
+
+    if(!entry.pReferee_ || (!entry.pTracker_ && !entry.pDetection_))
         return std::optional<GameLog::Entry>();
 
     return entry;

@@ -41,12 +41,12 @@ void FieldVisualizer::setGeometry(std::shared_ptr<const SSL_GeometryData> pVisio
     }
 }
 
-void FieldVisualizer::update(std::shared_ptr<TrackerWrapperPacket> pTracker)
+void FieldVisualizer::update(std::shared_ptr<TrackerWrapperPacket> pTracker, std::shared_ptr<SSL_DetectionFrame> pDetection)
 {
     BLRgba32 underlineYellow(0xFFFFD700);
     BLRgba32 underlineBlue(0xFF0000FF);
 
-    if(!pTracker->has_tracked_frame() || !pGeometryPacket_)
+    if(!pGeometryPacket_)
         return;
 
     // TODO: distinguish tracker sources?
@@ -72,47 +72,108 @@ void FieldVisualizer::update(std::shared_ptr<TrackerWrapperPacket> pTracker)
         ctx_.strokeLine(line.p1().x()/scale_ + offX, line.p1().y()/scale_ + offY, line.p2().x()/scale_ + offX, line.p2().y()/scale_ + offY);
     }
 
-    // Robots
-    for(const auto& robot : pTracker->tracked_frame().robots())
+    if(pTracker && pTracker->has_tracked_frame())
     {
-        ctx_.setStrokeStyle(BLRgba32(0xFF000000));
-        ctx_.setStrokeWidth(10/scale_);
+        // Robots
+        for(const auto& robot : pTracker->tracked_frame().robots())
+        {
+            ctx_.setStrokeStyle(BLRgba32(0xFF000000));
+            ctx_.setStrokeWidth(10/scale_);
 
-        ctx_.setFillStyle(BLRgba32(0xFF000000));
-        ctx_.fillChord(robot.pos().x()*1000.0/scale_ + offX, robot.pos().y()*1000.0/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
-                        robot.orientation()+0.5f, M_PI*2.0-1.0);
+            ctx_.setFillStyle(BLRgba32(0xFF000000));
+            ctx_.fillChord(robot.pos().x()*1000.0/scale_ + offX, robot.pos().y()*1000.0/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                            robot.orientation()+0.5f, M_PI*2.0-1.0);
 
-        if(robot.robot_id().team() == Team::YELLOW)
+            if(robot.robot_id().team() == Team::YELLOW)
+                ctx_.setFillStyle(BLRgba32(0xFFFFEB3B));
+            else
+                ctx_.setFillStyle(BLRgba32(0xFF1565C0));
+
+            ctx_.fillPie(robot.pos().x()*1000.0/scale_ + offX, robot.pos().y()*1000.0/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                            robot.orientation()+0.5f, M_PI*2.0-1.0);
+
+            ctx_.strokeChord(robot.pos().x()*1000.0/scale_ + offX, robot.pos().y()*1000.0/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                            robot.orientation()+0.5f, M_PI*2.0-1.0);
+        }
+
+        // Ball
+        if(pTracker->tracked_frame().balls_size() > 0)
+        {
+            const TrackedBall& ball = pTracker->tracked_frame().balls(0);
+
+            ctx_.setFillStyle(BLRgba32(0xFFF39C12));
+            ctx_.setStrokeStyle(BLRgba32(0xFFF39C12));
+            ctx_.setStrokeWidth(15/scale_);
+
+            ctx_.fillCircle(ball.pos().x()*1000.0/scale_ + offX, ball.pos().y()*1000.0/scale_ + offY, fieldSize.ball_radius()/scale_);
+            ctx_.strokeCircle(ball.pos().x()*1000.0/scale_ + offX, ball.pos().y()*1000.0/scale_ + offY, fieldSize.ball_radius()*10/scale_);
+        }
+
+        // Tracker source name
+        BLFont regularFont;
+        regularFont.createFromFace(regularFontFace_, fieldSize.boundary_width()/scale_*0.8);
+
+        ctx_.setFillStyle(BLRgba32(0xFFFFFFFF));
+        ctx_.fillUtf8Text(BLPoint(0, fieldSize.boundary_width()/scale_*0.8), regularFont, pTracker->source_name().c_str());
+    }
+    else if(pDetection)
+    {
+        // Yellow robots
+        for(const auto& robot : pDetection->robots_yellow())
+        {
+            ctx_.setStrokeStyle(BLRgba32(0xFF000000));
+            ctx_.setStrokeWidth(10/scale_);
+
+            ctx_.setFillStyle(BLRgba32(0xFF000000));
+            ctx_.fillChord(robot.x()/scale_ + offX, robot.y()/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                           robot.orientation()+0.5f, M_PI*2.0-1.0);
+
             ctx_.setFillStyle(BLRgba32(0xFFFFEB3B));
-        else
+
+            ctx_.fillPie(robot.x()/scale_ + offX, robot.y()/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                         robot.orientation()+0.5f, M_PI*2.0-1.0);
+
+            ctx_.strokeChord(robot.x()/scale_ + offX, robot.y()/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                             robot.orientation()+0.5f, M_PI*2.0-1.0);
+        }
+
+        // Blue robots
+        for(const auto& robot : pDetection->robots_blue())
+        {
+            ctx_.setStrokeStyle(BLRgba32(0xFF000000));
+            ctx_.setStrokeWidth(10/scale_);
+
+            ctx_.setFillStyle(BLRgba32(0xFF000000));
+            ctx_.fillChord(robot.x()/scale_ + offX, robot.y()/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                           robot.orientation()+0.5f, M_PI*2.0-1.0);
+
             ctx_.setFillStyle(BLRgba32(0xFF1565C0));
 
-        ctx_.fillPie(robot.pos().x()*1000.0/scale_ + offX, robot.pos().y()*1000.0/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
-                        robot.orientation()+0.5f, M_PI*2.0-1.0);
+            ctx_.fillPie(robot.x()/scale_ + offX, robot.y()/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                         robot.orientation()+0.5f, M_PI*2.0-1.0);
 
-        ctx_.strokeChord(robot.pos().x()*1000.0/scale_ + offX, robot.pos().y()*1000.0/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
-                        robot.orientation()+0.5f, M_PI*2.0-1.0);
+            ctx_.strokeChord(robot.x()/scale_ + offX, robot.y()/scale_ + offY, fieldSize.max_robot_radius()/scale_, fieldSize.max_robot_radius()/scale_,
+                             robot.orientation()+0.5f, M_PI*2.0-1.0);
+        }
+
+        // Balls
+        for(const auto& ball : pDetection->balls())
+        {
+            ctx_.setFillStyle(BLRgba32(0xFFF39C12));
+            ctx_.setStrokeStyle(BLRgba32(0xFFF39C12));
+            ctx_.setStrokeWidth(15/scale_);
+
+            ctx_.fillCircle(ball.x()/scale_ + offX, ball.y()/scale_ + offY, fieldSize.ball_radius()/scale_);
+            ctx_.strokeCircle(ball.x()/scale_ + offX, ball.y()/scale_ + offY, fieldSize.ball_radius()*10/scale_);
+        }
+
+        // Source name
+        BLFont regularFont;
+        regularFont.createFromFace(regularFontFace_, fieldSize.boundary_width()/scale_*0.8);
+
+        ctx_.setFillStyle(BLRgba32(0xFFFFFFFF));
+        ctx_.fillUtf8Text(BLPoint(0, fieldSize.boundary_width()/scale_*0.8), regularFont, "Raw");
     }
-
-    // Ball
-    if(pTracker->tracked_frame().balls_size() > 0)
-    {
-        const TrackedBall& ball = pTracker->tracked_frame().balls(0);
-
-        ctx_.setFillStyle(BLRgba32(0xFFF39C12));
-        ctx_.setStrokeStyle(BLRgba32(0xFFF39C12));
-        ctx_.setStrokeWidth(15/scale_);
-
-        ctx_.fillCircle(ball.pos().x()*1000.0/scale_ + offX, ball.pos().y()*1000.0/scale_ + offY, fieldSize.ball_radius()/scale_);
-        ctx_.strokeCircle(ball.pos().x()*1000.0/scale_ + offX, ball.pos().y()*1000.0/scale_ + offY, fieldSize.ball_radius()*10/scale_);
-    }
-
-    // Tracker source name
-    BLFont regularFont;
-    regularFont.createFromFace(regularFontFace_, fieldSize.boundary_width()/scale_*0.8);
-
-    ctx_.setFillStyle(BLRgba32(0xFFFFFFFF));
-    ctx_.fillUtf8Text(BLPoint(0, fieldSize.boundary_width()/scale_*0.8), regularFont, pTracker->source_name().c_str());
 
     // Detach the rendering context from `img`.
     ctx_.end();
