@@ -2,6 +2,7 @@
 #include "ImGuiFileDialog.h"
 #include "LogViewer.hpp"
 #include "data/MediaEncoder.hpp"
+#include "gui/ScoreBoardFactory.hpp"
 #include <filesystem>
 #include <chrono>
 
@@ -23,7 +24,7 @@ TigersClav::TigersClav()
     glGenTextures(1, &scoreBoardTexture_);
     glGenTextures(1, &fieldVisualizerTexture_);
 
-    pScoreBoard_ = std::make_unique<ScoreBoard>();
+    pScoreBoard_ = ScoreBoardFactory::create();
     pFieldVisualizer_ = std::make_unique<FieldVisualizer>();
     pImageComposer_ = std::make_unique<ImageComposer>(ImVec2(3840, 2160));
 
@@ -95,6 +96,28 @@ void TigersClav::render()
             ImGui::EndMenu();
         }
 
+        if(ImGui::BeginMenu("Score Board"))
+        {
+            int selection = -1;
+            if(pProject_->getScoreBoardType().empty())
+                selection = 0;
+
+            for(size_t i = 0; i < ScoreBoardFactory::getTypeList().size(); i++)
+            {
+                const auto& type = ScoreBoardFactory::getTypeList()[i];
+                if(type == pProject_->getScoreBoardType())
+                    selection = i;
+
+                if(ImGui::RadioButton(type.c_str(), &selection, i))
+                {
+                    pProject_->setScoreBoardType(type);
+                    pScoreBoard_ = ScoreBoardFactory::create(type);
+                }
+            }
+
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMenuBar();
     }
 
@@ -111,6 +134,7 @@ void TigersClav::render()
             openPath.close();
 
             pProject_->load(ImGuiFileDialog::Instance()->GetFilePathName());
+            pScoreBoard_ = ScoreBoardFactory::create(pProject_->getScoreBoardType());
         }
 
         ImGuiFileDialog::Instance()->Close();
@@ -433,9 +457,9 @@ void TigersClav::drawProjectPanel()
             pProject_->sync();
 
             auto projectPath = std::filesystem::path(pProject_->getFilename());
-            std::string outputBase = projectPath.parent_path().string() + "/" + projectPath.stem().string() + "_";
+            std::string outputBase = (pProject_->getFilename().empty() ? "" : projectPath.parent_path().string() + "/") + projectPath.stem().string() + "_";
 
-            pVideoProducer_ = std::make_unique<VideoProducer>(outputBase);
+            pVideoProducer_ = std::make_unique<VideoProducer>(outputBase, pProject_->getScoreBoardType());
 
             if(exportScoreBoardCut_)
                 pVideoProducer_->addCutVideo(pProject_->getGameLog(), nullptr);
@@ -832,7 +856,7 @@ void TigersClav::drawGameLogPanel()
         if(entry)
         {
             pFieldVisualizer_->update(entry->pTracker_, entry->pDetection_);
-            pScoreBoard_->update(entry->pReferee_);
+            pScoreBoard_->update(*entry->pReferee_);
         }
     }
 

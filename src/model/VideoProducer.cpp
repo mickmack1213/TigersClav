@@ -1,14 +1,16 @@
 #include "VideoProducer.hpp"
 #include "util/easylogging++.h"
 #include "data/MediaSource.hpp"
+#include "gui/ScoreBoardFactory.hpp"
 #include <filesystem>
 
 extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-VideoProducer::VideoProducer(std::string outputBaseName)
+VideoProducer::VideoProducer(std::string outputBaseName, std::string scoreBoardType)
 :outputBaseName_(outputBaseName),
+ scoreBoardType_(scoreBoardType),
  workerDone_(false),
  shouldAbort_(false),
  totalDuration_s_(0.0),
@@ -306,9 +308,9 @@ void VideoProducer::worker()
 
         MediaEncoder enc(renderVideo.outFile);
 
-        ScoreBoard board;
+        auto pBoard = ScoreBoardFactory::create(scoreBoardType_);
 
-        auto imgData = board.getImageData();
+        auto imgData = pBoard->getImageData();
 
         pResizer_ = sws_getContext(imgData.size.w, imgData.size.h, AV_PIX_FMT_BGRA, imgData.size.w, imgData.size.h,
                         AV_PIX_FMT_YUV420P, SWS_BILINEAR, NULL, NULL, NULL);
@@ -329,7 +331,7 @@ void VideoProducer::worker()
 
                 if(optEntry)
                 {
-                    board.update(optEntry->pReferee_);
+                    pBoard->update(*optEntry->pReferee_);
                 }
                 else
                 {
@@ -338,7 +340,7 @@ void VideoProducer::worker()
                     return;
                 }
 
-                auto pFrame = blImageToMediaFrame(board.getImageData());
+                auto pFrame = blImageToMediaFrame(pBoard->getImageData());
 
                 if(enc.put(pFrame) < 0)
                 {

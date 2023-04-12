@@ -1,27 +1,18 @@
-#include "ScoreBoard.hpp"
+#include "ProgrammerScoreBoard.hpp"
 
-ScoreBoard::ScoreBoard()
+ProgrammerScoreBoard::ProgrammerScoreBoard()
+:AScoreBoard("fonts/NotoSansMono-Regular.ttf", "fonts/RobotoSlab-Bold.ttf", 1200, 110)
 {
-    BLResult blResult = regularFontFace_.createFromFile("fonts/NotoSansMono-Regular.ttf");
-    if(blResult)
-        throw std::runtime_error("Regular font not found");
-
-    blResult = boldFontFace_.createFromFile("fonts/RobotoSlab-Bold.ttf");
-    if(blResult)
-        throw std::runtime_error("Bold font not found");
-
-    gamestateImage_.create(1200, 110, BL_FORMAT_PRGB32);
-
-    update(std::make_shared<Referee>());
+    update(Referee());
 }
 
-void ScoreBoard::update(std::shared_ptr<Referee> pRef)
+void ProgrammerScoreBoard::update(const Referee& ref)
 {
     BLRgba32 underlineYellow(0xFFFFD700);
     BLRgba32 underlineBlue(0xFF0000FF);
 
-    int yellowCards[2] = { pRef->yellow().yellow_card_times().size(), pRef->blue().yellow_card_times().size() };
-    unsigned int redCards[2] = { pRef->yellow().red_cards(), pRef->blue().red_cards() };
+    int yellowCards[2] = { ref.yellow().yellow_card_times().size(), ref.blue().yellow_card_times().size() };
+    unsigned int redCards[2] = { ref.yellow().red_cards(), ref.blue().red_cards() };
 
     ctx_.begin(gamestateImage_);
 
@@ -48,41 +39,33 @@ void ScoreBoard::update(std::shared_ptr<Referee> pRef)
     ctx_.fillRect(680, 50, 420, 10);
 
     // Team names
-    drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(310, 25), BLPoint(890, 25), BLSize(400, 60));
+    drawTeamNames(ref.yellow().name(), ref.blue().name(), BLPoint(310, 25), BLPoint(890, 25), BLSize(400, 60));
 
     // Background for score
     ctx_.setFillStyle(BLRgba32(0xFF444444));
     ctx_.fillRect(520, 0, 160, 50);
 
     // Actual score
-    drawScore(pRef->yellow().score(), pRef->blue().score(), BLPoint(600, 43));
+    drawScore(ref.yellow().score(), ref.blue().score(), BLPoint(600, 43));
 
     drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(1114, 0));
     drawCard(CardColor::RED, redCards[1], BLPoint(1164, 0));
 
     std::optional<int> stageTimeLeft;
-    if(hasStageTimeLeft(pRef->stage()))
-        stageTimeLeft = pRef->stage_time_left();
+    if(hasStageTimeLeft(ref.stage()))
+        stageTimeLeft = ref.stage_time_left();
 
     std::optional<int> actionTimeLeft;
-    if(hasActionTimeLeft(pRef->command()))
-        actionTimeLeft = pRef->current_action_time_remaining();
+    if(hasActionTimeLeft(ref.command()))
+        actionTimeLeft = ref.current_action_time_remaining();
 
-    drawStage(pRef->stage(), pRef->command(), stageTimeLeft, actionTimeLeft, BLPoint(100, 70));
+    drawStage(ref.stage(), ref.command(), stageTimeLeft, actionTimeLeft, BLPoint(100, 70));
 
     // Detach the rendering context from `img`.
     ctx_.end();
 }
 
-BLImageData ScoreBoard::getImageData()
-{
-    BLImageData imgData;
-    gamestateImage_.getData(&imgData);
-
-    return imgData;
-}
-
-void ScoreBoard::drawStage(Referee::Stage stage, Referee::Command command, std::optional<int> stageTimeLeft_us, std::optional<int> actionTimeLeft_us, BLPoint pos)
+void ProgrammerScoreBoard::drawStage(Referee::Stage stage, Referee::Command command, std::optional<int> stageTimeLeft_us, std::optional<int> actionTimeLeft_us, BLPoint pos)
 {
     std::string stageText = refereeStageToString(stage);
 
@@ -145,7 +128,7 @@ void ScoreBoard::drawStage(Referee::Stage stage, Referee::Command command, std::
     ctx_.fillUtf8Text(BLPoint(110, pos.y+30), regularFont, commandText.c_str());
 }
 
-void ScoreBoard::drawTeamNames(std::string team1, std::string team2, BLPoint pos1, BLPoint pos2, BLSize maxSize)
+void ProgrammerScoreBoard::drawTeamNames(std::string team1, std::string team2, BLPoint pos1, BLPoint pos2, BLSize maxSize)
 {
     BLFont regularFont;
     BLTextMetrics tm[2];
@@ -185,7 +168,7 @@ void ScoreBoard::drawTeamNames(std::string team1, std::string team2, BLPoint pos
     ctx_.fillGlyphRun(BLPoint(pos2.x-nameWidths[1]/2, pos2.y-fontOffset), regularFont, gb[1].glyphRun());
 }
 
-void ScoreBoard::drawCard(CardColor color, unsigned int amount, BLPoint pos, BLSize size)
+void ProgrammerScoreBoard::drawCard(CardColor color, unsigned int amount, BLPoint pos, BLSize size)
 {
     if(amount == 0)
         return;
@@ -220,7 +203,7 @@ void ScoreBoard::drawCard(CardColor color, unsigned int amount, BLPoint pos, BLS
     }
 }
 
-void ScoreBoard::drawScore(unsigned int score1, unsigned int score2, BLPoint pos)
+void ProgrammerScoreBoard::drawScore(unsigned int score1, unsigned int score2, BLPoint pos)
 {
     BLTextMetrics tm;
     BLGlyphBuffer gb;
@@ -250,60 +233,7 @@ void ScoreBoard::drawScore(unsigned int score1, unsigned int score2, BLPoint pos
     ctx_.fillGlyphRun(BLPoint(pos.x + 40 - tm.advance.x/2, pos.y), fontLarge, gb.glyphRun());
 }
 
-bool ScoreBoard::hasStageTimeLeft(Referee::Stage stage)
-{
-    switch(stage)
-    {
-        case Referee_Stage_NORMAL_FIRST_HALF:
-        case Referee_Stage_NORMAL_HALF_TIME:
-        case Referee_Stage_NORMAL_SECOND_HALF:
-        case Referee_Stage_EXTRA_TIME_BREAK:
-        case Referee_Stage_EXTRA_FIRST_HALF:
-        case Referee_Stage_EXTRA_HALF_TIME:
-        case Referee_Stage_EXTRA_SECOND_HALF:
-        case Referee_Stage_PENALTY_SHOOTOUT_BREAK:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool ScoreBoard::hasActionTimeLeft(Referee::Command command)
-{
-    switch(command)
-    {
-        // these stages NEVER have an action time
-        case Referee_Command_HALT:
-        case Referee_Command_STOP:
-        case Referee_Command_TIMEOUT_YELLOW:
-        case Referee_Command_TIMEOUT_BLUE:
-        case Referee_Command_GOAL_YELLOW:
-        case Referee_Command_GOAL_BLUE:
-        case Referee_Command_FORCE_START:
-        case Referee_Command_PREPARE_KICKOFF_YELLOW:
-        case Referee_Command_PREPARE_KICKOFF_BLUE:
-        case Referee_Command_PREPARE_PENALTY_YELLOW:
-        case Referee_Command_PREPARE_PENALTY_BLUE:
-            return false;
-
-        // Usually, these stages have an action time, but we don't show it
-        case Referee_Command_NORMAL_START:
-        case Referee_Command_DIRECT_FREE_YELLOW:
-        case Referee_Command_DIRECT_FREE_BLUE:
-        case Referee_Command_INDIRECT_FREE_YELLOW:
-        case Referee_Command_INDIRECT_FREE_BLUE:
-            return false;
-
-        case Referee_Command_BALL_PLACEMENT_YELLOW:
-        case Referee_Command_BALL_PLACEMENT_BLUE:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-std::string ScoreBoard::refereeStageToString(Referee::Stage stage)
+std::string ProgrammerScoreBoard::refereeStageToString(Referee::Stage stage)
 {
     std::string stageText;
 
@@ -348,7 +278,7 @@ std::string ScoreBoard::refereeStageToString(Referee::Stage stage)
     return stageText;
 }
 
-void ScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::string& commandText, BLRgba32& bgColor)
+void ProgrammerScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::string& commandText, BLRgba32& bgColor)
 {
     bgColor = BLRgba32(0xFF444444);
 

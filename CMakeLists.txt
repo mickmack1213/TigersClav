@@ -60,7 +60,10 @@ add_executable(${PROJECT_NAME}
     src/data/MediaEncoder.cpp
     
     src/gui/ImageComposer.cpp
-    src/gui/ScoreBoard.cpp
+    src/gui/AScoreBoard.cpp
+    src/gui/FancyScoreBoard.cpp
+    src/gui/ProgrammerScoreBoard.cpp
+    src/gui/ScoreBoardFactory.cpp
     src/gui/FieldVisualizer.cpp
     
     src/model/Project.cpp
