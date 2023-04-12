@@ -14,11 +14,13 @@ public:
     bool hasGeometry() const { return (bool)pGeometryPacket_; }
     void setGeometry(std::shared_ptr<const SSL_GeometryData> pVision);
 
-    void update(std::shared_ptr<TrackerWrapperPacket> pTracker);
+    void update(std::shared_ptr<TrackerWrapperPacket> pTracker, std::shared_ptr<SSL_DetectionFrame> pDetection);
 
     BLImageData getImageData();
 
 private:
+    void drawTrackerData(std::shared_ptr<TrackerWrapperPacket> pTracker);
+
     std::shared_ptr<const SSL_GeometryData> pGeometryPacket_;
 
     BLFontFace regularFontFace_;

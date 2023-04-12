@@ -18,6 +18,7 @@ public:
         int64_t timestamp_ns_;
         std::shared_ptr<Referee> pReferee_;
         std::shared_ptr<TrackerWrapperPacket> pTracker_;
+        std::shared_ptr<SSL_DetectionFrame> pDetection_;
     };
 
     GameLog(std::string filename);

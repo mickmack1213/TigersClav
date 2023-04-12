@@ -855,7 +855,7 @@ void TigersClav::drawGameLogPanel()
         std::optional<GameLog::Entry> entry = pGameLog->get();
         if(entry)
         {
-            pFieldVisualizer_->update(entry->pTracker_);
+            pFieldVisualizer_->update(entry->pTracker_, entry->pDetection_);
             pScoreBoard_->update(*entry->pReferee_);
         }
     }
