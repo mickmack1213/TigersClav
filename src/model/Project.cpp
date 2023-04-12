@@ -63,6 +63,8 @@ void Project::load(std::string filename)
         LOG(INFO) << "Saved project dir: " << savePrjDir;
         LOG(INFO) << "Open project dir: " << openPrjDir;
 
+        scoreBoardType_ = jFile["project"].value("score_board", std::string());
+
         // Read gamelog data
         if(jFile.contains("gamelog"))
         {
@@ -133,6 +135,7 @@ void Project::save(std::string filename)
 
     // Project data
     jFile["project"]["path"] = filename;
+    jFile["project"]["score_board"] = scoreBoardType_;
 
     // Gamelog data
     if(pGameLog_)

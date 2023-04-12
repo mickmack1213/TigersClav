@@ -1,15 +1,12 @@
 #include "AScoreBoard.hpp"
-#include "FancyScoreBoard.hpp"
-#include "ProgrammerScoreBoard.hpp"
 
-
-AScoreBoard::AScoreBoard(const char *regularFont, const char *boldFont, int width, int height)
+AScoreBoard::AScoreBoard(const std::string& regularFont, const std::string& boldFont, int width, int height)
 {
-    BLResult blResult = regularFontFace_.createFromFile(regularFont);
+    BLResult blResult = regularFontFace_.createFromFile(regularFont.c_str());
     if(blResult)
         throw std::runtime_error("Regular font not found");
 
-    blResult = boldFontFace_.createFromFile(boldFont);
+    blResult = boldFontFace_.createFromFile(boldFont.c_str());
     if(blResult)
         throw std::runtime_error("Bold font not found");
 
@@ -74,4 +71,11 @@ bool AScoreBoard::hasActionTimeLeft(Referee::Command command)
         default:
             return false;
     }
+}
+
+double AScoreBoard::getTextWidth(const BLFont& font, BLGlyphBuffer& gb)
+{
+    BLTextMetrics tm{};
+    font.getTextMetrics(gb, tm);
+    return tm.advance.x;
 }

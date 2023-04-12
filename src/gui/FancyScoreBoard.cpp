@@ -1,43 +1,41 @@
 #include "FancyScoreBoard.hpp"
 
-#define MAIN_HEIGHT 60
-#define HALF_MAIN_HEIGHT (MAIN_HEIGHT >> 1)
-#define STAGE_HEIGHT 40
-#define HALF_STAGE_HEIGHT (STAGE_HEIGHT >> 1)
+// Configure appearance
+#define MAIN_HEIGHT     60  // height of team name and score display
+#define STAGE_HEIGHT    40  // height of stage display (center, top)
+
+#define TEAM_NAME_WIDTH 380 // width for each team name
+#define SCORE_WIDTH     200 // width for score display (center)
+#define STAGE_WIDTH     300 // width for stage display (center, top)
+#define CARD_WIDTH      40  // width of yellow/red cards
+#define CURVE_WIDTH     20  // width of smooth curve for stage and team name display edges
+
+#define COLOR_DARK      BLRgba32(0xFF333333)
+#define COLOR_LIGHT     BLRgba32(0xFFDDDDDD)
+
+// Derived values
+#define HALF_MAIN_HEIGHT (MAIN_HEIGHT / 2)
+#define HALF_STAGE_HEIGHT (STAGE_HEIGHT / 2)
 
 #define FULL_HEIGHT (MAIN_HEIGHT + STAGE_HEIGHT)
 #define MAIN_CENTER (STAGE_HEIGHT + HALF_MAIN_HEIGHT)
 #define SMALL_TEXT (STAGE_HEIGHT - 10)
 
-#define CURVE_WIDTH 20
 #define HALF_CURVE_WIDTH (CURVE_WIDTH / 2.0f)
-#define TEAM_NAME_WIDTH 380
-#define SCORE_WIDTH 200
 #define FULL_WIDTH ((CURVE_WIDTH + TEAM_NAME_WIDTH) * 2 + SCORE_WIDTH)
 #define HALF_WIDTH (FULL_WIDTH / 2.0f)
 #define TEAM_NAME_CENTER (CURVE_WIDTH + TEAM_NAME_WIDTH/2.0f)
 
-#define STAGE_WIDTH 300
 #define HALF_STAGE_WIDTH (STAGE_WIDTH / 2)
 #define CARD_OFFSET (HALF_STAGE_WIDTH + CURVE_WIDTH)
-#define CARD_WIDTH 40
 
-#define COLOR_DARK BLRgba32(0xFF333333)
-#define COLOR_LIGHT BLRgba32(0xFFDDDDDD)
-
-static double textWidth(const BLFont &font, BLGlyphBuffer& gb)
+FancyScoreBoard::FancyScoreBoard()
+:AScoreBoard("fonts/Palanquin-Bold.ttf", "fonts/NotoSans-Bold.ttf", FULL_WIDTH, FULL_HEIGHT)
 {
-    BLTextMetrics tm{};
-    font.getTextMetrics(gb, tm);
-    return tm.advance.x;
+    update(Referee());
 }
 
-FancyScoreBoard::FancyScoreBoard(): AScoreBoard("fonts/Palanquin-Bold.ttf", "fonts/NotoSans-Bold.ttf", FULL_WIDTH, FULL_HEIGHT)
-{
-    update(std::make_shared<Referee>());
-}
-
-void FancyScoreBoard::update(const std::shared_ptr<Referee>& pRef)
+void FancyScoreBoard::update(const Referee& ref)
 {
     ctx_.begin(gamestateImage_);
 
@@ -47,22 +45,23 @@ void FancyScoreBoard::update(const std::shared_ptr<Referee>& pRef)
     ctx_.fillAll();
 
     // Get information
-    Referee::Command command = pRef->command();
+    Referee::Command command = ref.command();
     if(command == Referee_Command_FORCE_START || command == Referee_Command_DIRECT_FREE_BLUE || command == Referee_Command_DIRECT_FREE_YELLOW || command == Referee_Command_INDIRECT_FREE_BLUE || command == Referee_Command_INDIRECT_FREE_YELLOW)
     {
         command = Referee_Command_NORMAL_START;
     }
+
     std::string stageText;
-    Referee::Command standard;
-    refereeStageToString(pRef->stage(), standard, stageText);
+    Referee::Command defaultCommand;
+    refereeStageToTextAndDefaultCommand(ref.stage(), stageText, defaultCommand);
 
     std::string commandText;
     BLRgba32 bgColor{}, textColor{};
     refereeCommandToTextAndColor(command, commandText, bgColor, textColor);
 
     // Cards
-    int yellowCards[2] = { pRef->yellow().yellow_card_times().size(), pRef->blue().yellow_card_times().size() };
-    unsigned int redCards[2] = { pRef->yellow().red_cards(), pRef->blue().red_cards() };
+    int yellowCards[2] = { ref.yellow().yellow_card_times().size(), ref.blue().yellow_card_times().size() };
+    unsigned int redCards[2] = { ref.yellow().red_cards(), ref.blue().red_cards() };
     drawCard(CardColor::RED, redCards[0], BLPoint(HALF_WIDTH - CARD_OFFSET - (yellowCards[0] > 0 ? 2 : 1) * CARD_WIDTH, HALF_STAGE_HEIGHT), 1);
     drawCard(CardColor::RED, redCards[1], BLPoint(HALF_WIDTH + CARD_OFFSET + (yellowCards[1] > 0 ? 2 : 1) * CARD_WIDTH, HALF_STAGE_HEIGHT), -1);
     drawCard(CardColor::YELLOW, yellowCards[0], BLPoint(HALF_WIDTH - CARD_OFFSET - CARD_WIDTH, HALF_STAGE_HEIGHT), 1);
@@ -81,7 +80,8 @@ void FancyScoreBoard::update(const std::shared_ptr<Referee>& pRef)
     background.quadTo(FULL_WIDTH - HALF_CURVE_WIDTH, STAGE_HEIGHT, FULL_WIDTH, FULL_HEIGHT);
     ctx_.fillPath(background);
 
-    ctx_.setFillStyle(command == standard ? COLOR_DARK : bgColor);
+    ctx_.setFillStyle(command == defaultCommand ? COLOR_DARK : bgColor);
+
     BLPath stateBackground;
     stateBackground.moveTo(HALF_WIDTH - CARD_OFFSET, STAGE_HEIGHT);
     stateBackground.cubicTo(HALF_WIDTH - HALF_STAGE_WIDTH - HALF_CURVE_WIDTH, STAGE_HEIGHT, HALF_WIDTH - HALF_STAGE_WIDTH - HALF_CURVE_WIDTH, 0, HALF_WIDTH - HALF_STAGE_WIDTH, 0);
@@ -93,35 +93,33 @@ void FancyScoreBoard::update(const std::shared_ptr<Referee>& pRef)
     ctx_.strokePath(stateBackground);
 
     // Team names
-    drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(TEAM_NAME_CENTER, MAIN_CENTER), BLPoint(FULL_WIDTH - TEAM_NAME_CENTER, MAIN_CENTER), BLSize(TEAM_NAME_WIDTH, MAIN_HEIGHT));
+    drawTeamNames(ref.yellow().name(), ref.blue().name(), BLPoint(TEAM_NAME_CENTER, MAIN_CENTER), BLPoint(FULL_WIDTH - TEAM_NAME_CENTER, MAIN_CENTER), BLSize(TEAM_NAME_WIDTH, MAIN_HEIGHT));
 
     // Score
-    centeredText(BLPoint(HALF_WIDTH - 75, MAIN_CENTER), std::to_string(pRef->yellow().score()).c_str(), boldFontFace_, MAIN_HEIGHT, COLOR_LIGHT);
-    centeredText(BLPoint(HALF_WIDTH + 75, MAIN_CENTER), std::to_string(pRef->blue().score()).c_str(), boldFontFace_, MAIN_HEIGHT, COLOR_LIGHT);
+    drawCenteredText(BLPoint(HALF_WIDTH - 75, MAIN_CENTER), std::to_string(ref.yellow().score()), boldFontFace_, MAIN_HEIGHT, COLOR_LIGHT);
+    drawCenteredText(BLPoint(HALF_WIDTH + 75, MAIN_CENTER), std::to_string(ref.blue().score()), boldFontFace_, MAIN_HEIGHT, COLOR_LIGHT);
 
     // Stage time
-    drawTime(pRef->stage(), COLOR_LIGHT, pRef->stage_time_left());
+    if(hasStageTimeLeft(ref.stage()))
+        drawTime(COLOR_LIGHT, ref.stage_time_left());
 
     // Stage
-    drawStage(stageText, commandText, standard, command, textColor, pRef->current_action_time_remaining());
-
-    // Detach the rendering context from `img`.
-    ctx_.end();
-}
-
-void FancyScoreBoard::drawStage(const std::string& stageText, std::string& commandText, Referee::Command standard, Referee::Command command, const BLRgba32& textColor, int time_us)
-{
-    if(command == standard)
+    if(command == defaultCommand)
     {
-        centeredText(BLPoint(HALF_WIDTH, HALF_STAGE_HEIGHT), stageText.c_str(), regularFontFace_, SMALL_TEXT, COLOR_LIGHT);
+        drawCenteredText(BLPoint(HALF_WIDTH, HALF_STAGE_HEIGHT), stageText, regularFontFace_, SMALL_TEXT, COLOR_LIGHT);
     }
     else
     {
+        int time_us = ref.current_action_time_remaining();
+
         if(hasActionTimeLeft(command) && time_us > 0)
             commandText += " (" + std::to_string(time_us / 1000000) + "s)";
 
-        centeredText(BLPoint(HALF_WIDTH, HALF_STAGE_HEIGHT), commandText.c_str(), regularFontFace_, SMALL_TEXT, textColor);
+        drawCenteredText(BLPoint(HALF_WIDTH, HALF_STAGE_HEIGHT), commandText, regularFontFace_, SMALL_TEXT, textColor);
     }
+
+    // Detach the rendering context from `img`.
+    ctx_.end();
 }
 
 void FancyScoreBoard::drawTeamNames(const std::string& team1, const std::string& team2, BLPoint pos1, BLPoint pos2, BLSize maxSize)
@@ -141,8 +139,8 @@ void FancyScoreBoard::drawTeamNames(const std::string& team1, const std::string&
     {
         regularFont.createFromFace(regularFontFace_, fontSize);
         BLFontMetrics fm = regularFont.metrics();
-        nameWidths[0] = textWidth(regularFont, gb[0]);
-        nameWidths[1] = textWidth(regularFont, gb[1]);
+        nameWidths[0] = getTextWidth(regularFont, gb[0]);
+        nameWidths[1] = getTextWidth(regularFont, gb[1]);
         fontHeight = fm.ascent + fm.descent - fm.lineGap;
         fontOffset = fm.descent;
         fontSize -= 1.0f;
@@ -173,11 +171,11 @@ void FancyScoreBoard::drawCard(CardColor color, unsigned int amount, BLPoint pos
 
     if(amount > 1)
     {
-        centeredText(BLPoint(pos.x + direction*30, pos.y), std::to_string(amount).c_str(), boldFontFace_, SMALL_TEXT, COLOR_DARK);
+        drawCenteredText(BLPoint(pos.x + direction*30, pos.y), std::to_string(amount), boldFontFace_, SMALL_TEXT, COLOR_DARK);
     }
 }
 
-void FancyScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::string &commandText, BLRgba32 &bgColor, BLRgba32 &textColor)
+void FancyScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std::string& commandText, BLRgba32& bgColor, BLRgba32 &textColor)
 {
     bgColor = COLOR_DARK;
     textColor = COLOR_LIGHT;
@@ -251,86 +249,83 @@ void FancyScoreBoard::refereeCommandToTextAndColor(Referee::Command command, std
     }
 }
 
-void FancyScoreBoard::refereeStageToString(Referee::Stage stage, Referee::Command &standard, std::string &stageText)
+void FancyScoreBoard::refereeStageToTextAndDefaultCommand(Referee::Stage stage, std::string& stageText, Referee::Command& defaultCommand)
 {
     switch(stage)
     {
         case Referee_Stage_NORMAL_FIRST_HALF_PRE:
         case Referee_Stage_NORMAL_FIRST_HALF:
             stageText = "1st Half";
-            standard = Referee_Command_NORMAL_START;
+            defaultCommand = Referee_Command_NORMAL_START;
             break;
         case Referee_Stage_NORMAL_HALF_TIME:
             stageText = "Break (Halftime)";
-            standard = Referee_Command_HALT;
+            defaultCommand = Referee_Command_HALT;
             break;
         case Referee_Stage_NORMAL_SECOND_HALF_PRE:
         case Referee_Stage_NORMAL_SECOND_HALF:
             stageText = "2nd Half";
-            standard = Referee_Command_NORMAL_START;
+            defaultCommand = Referee_Command_NORMAL_START;
             break;
         case Referee_Stage_EXTRA_TIME_BREAK:
             stageText = "Break (Ext.)";
-            standard = Referee_Command_HALT;
+            defaultCommand = Referee_Command_HALT;
             break;
         case Referee_Stage_EXTRA_FIRST_HALF_PRE:
         case Referee_Stage_EXTRA_FIRST_HALF:
             stageText = "1st Half (Ext.)";
-            standard = Referee_Command_NORMAL_START;
+            defaultCommand = Referee_Command_NORMAL_START;
             break;
         case Referee_Stage_EXTRA_HALF_TIME:
             stageText = "Break (Ext. Halftime)";
-            standard = Referee_Command_HALT;
+            defaultCommand = Referee_Command_HALT;
             break;
         case Referee_Stage_EXTRA_SECOND_HALF_PRE:
         case Referee_Stage_EXTRA_SECOND_HALF:
             stageText = "2nd Half (Ext.)";
-            standard = Referee_Command_NORMAL_START;
+            defaultCommand = Referee_Command_NORMAL_START;
             break;
         case Referee_Stage_PENALTY_SHOOTOUT_BREAK:
             stageText = "Break (Shootout)";
-            standard = Referee_Command_HALT;
+            defaultCommand = Referee_Command_HALT;
             break;
         case Referee_Stage_PENALTY_SHOOTOUT:
             stageText = "Penalty Shootout";
-            standard = Referee_Command_NORMAL_START;
+            defaultCommand = Referee_Command_NORMAL_START;
             break;
         case Referee_Stage_POST_GAME:
             stageText = "Finished";
-            standard = Referee_Command_HALT;
+            defaultCommand = Referee_Command_HALT;
             break;
     }
 }
 
-void FancyScoreBoard::centeredText(const BLPoint &pos, const char *str, const BLFontFace &face, const float size, const BLRgba32 &color)
+void FancyScoreBoard::drawCenteredText(const BLPoint& pos, const std::string& text, const BLFontFace& face, const float size, const BLRgba32& color)
 {
     BLFont regularFont;
     regularFont.createFromFace(face, size);
     BLFontMetrics fm = regularFont.metrics();
 
     BLGlyphBuffer gb;
-    gb.setUtf8Text(str);
+    gb.setUtf8Text(text.c_str());
 
-    double width = textWidth(regularFont, gb);
+    double width = getTextWidth(regularFont, gb);
     double height = fm.ascent + fm.descent;
 
     ctx_.setFillStyle(color);
     ctx_.fillGlyphRun(BLPoint(pos.x-width/2, pos.y + height/2 - fm.descent), regularFont, gb.glyphRun());
 }
 
-void FancyScoreBoard::drawTime(Referee::Stage stage, const BLRgba32& textColor, int time_us)
+void FancyScoreBoard::drawTime(const BLRgba32& textColor, int time_us)
 {
-    if(hasStageTimeLeft(stage))
-    {
-        if(time_us < 0)
-            time_us = 0;
+    if(time_us < 0)
+        time_us = 0;
 
-        int time_s = time_us / 1000000;
-        int time_min = time_s / 60;
-        time_s %= 60;
+    int time_s = time_us / 1000000;
+    int time_min = time_s / 60;
+    time_s %= 60;
 
-        char buf[6];
-        snprintf(buf, sizeof(buf), "%2d:%02d", time_min, time_s);
-        centeredText(BLPoint(HALF_WIDTH, MAIN_CENTER), buf, regularFontFace_, SMALL_TEXT, textColor);
-    }
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%2d:%02d", time_min, time_s);
+    drawCenteredText(BLPoint(HALF_WIDTH, MAIN_CENTER), std::string(buf), regularFontFace_, SMALL_TEXT, textColor);
 }

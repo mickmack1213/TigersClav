@@ -1,13 +1,14 @@
 #pragma once
 
 #include "AScoreBoard.hpp"
+#include <optional>
 
-class ProgrammerScoreBoard: public AScoreBoard
+class ProgrammerScoreBoard : public AScoreBoard
 {
 public:
     ProgrammerScoreBoard();
 
-    void update(const std::shared_ptr<Referee>& pRef) final;
+    void update(const Referee& ref) override;
 
 private:
     void drawCard(CardColor color, unsigned int amount, BLPoint pos, BLSize size = BLSize(36, 50));

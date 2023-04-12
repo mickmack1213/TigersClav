@@ -63,6 +63,7 @@ add_executable(${PROJECT_NAME}
     src/gui/AScoreBoard.cpp
     src/gui/FancyScoreBoard.cpp
     src/gui/ProgrammerScoreBoard.cpp
+    src/gui/ScoreBoardFactory.cpp
     src/gui/FieldVisualizer.cpp
     
     src/model/Project.cpp

@@ -1,18 +1,18 @@
 #include "ProgrammerScoreBoard.hpp"
 
-
-ProgrammerScoreBoard::ProgrammerScoreBoard(): AScoreBoard("fonts/NotoSansMono-Regular.ttf", "fonts/RobotoSlab-Bold.ttf", 1200, 110)
+ProgrammerScoreBoard::ProgrammerScoreBoard()
+:AScoreBoard("fonts/NotoSansMono-Regular.ttf", "fonts/RobotoSlab-Bold.ttf", 1200, 110)
 {
-    update(std::make_shared<Referee>());
+    update(Referee());
 }
 
-void ProgrammerScoreBoard::update(const std::shared_ptr<Referee>& pRef)
+void ProgrammerScoreBoard::update(const Referee& ref)
 {
     BLRgba32 underlineYellow(0xFFFFD700);
     BLRgba32 underlineBlue(0xFF0000FF);
 
-    int yellowCards[2] = { pRef->yellow().yellow_card_times().size(), pRef->blue().yellow_card_times().size() };
-    unsigned int redCards[2] = { pRef->yellow().red_cards(), pRef->blue().red_cards() };
+    int yellowCards[2] = { ref.yellow().yellow_card_times().size(), ref.blue().yellow_card_times().size() };
+    unsigned int redCards[2] = { ref.yellow().red_cards(), ref.blue().red_cards() };
 
     ctx_.begin(gamestateImage_);
 
@@ -39,27 +39,27 @@ void ProgrammerScoreBoard::update(const std::shared_ptr<Referee>& pRef)
     ctx_.fillRect(680, 50, 420, 10);
 
     // Team names
-    drawTeamNames(pRef->yellow().name(), pRef->blue().name(), BLPoint(310, 25), BLPoint(890, 25), BLSize(400, 60));
+    drawTeamNames(ref.yellow().name(), ref.blue().name(), BLPoint(310, 25), BLPoint(890, 25), BLSize(400, 60));
 
     // Background for score
     ctx_.setFillStyle(BLRgba32(0xFF444444));
     ctx_.fillRect(520, 0, 160, 50);
 
     // Actual score
-    drawScore(pRef->yellow().score(), pRef->blue().score(), BLPoint(600, 43));
+    drawScore(ref.yellow().score(), ref.blue().score(), BLPoint(600, 43));
 
     drawCard(CardColor::YELLOW, yellowCards[1], BLPoint(1114, 0));
     drawCard(CardColor::RED, redCards[1], BLPoint(1164, 0));
 
     std::optional<int> stageTimeLeft;
-    if(hasStageTimeLeft(pRef->stage()))
-        stageTimeLeft = pRef->stage_time_left();
+    if(hasStageTimeLeft(ref.stage()))
+        stageTimeLeft = ref.stage_time_left();
 
     std::optional<int> actionTimeLeft;
-    if(hasActionTimeLeft(pRef->command()))
-        actionTimeLeft = pRef->current_action_time_remaining();
+    if(hasActionTimeLeft(ref.command()))
+        actionTimeLeft = ref.current_action_time_remaining();
 
-    drawStage(pRef->stage(), pRef->command(), stageTimeLeft, actionTimeLeft, BLPoint(100, 70));
+    drawStage(ref.stage(), ref.command(), stageTimeLeft, actionTimeLeft, BLPoint(100, 70));
 
     // Detach the rendering context from `img`.
     ctx_.end();
