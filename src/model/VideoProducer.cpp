@@ -268,7 +268,7 @@ void VideoProducer::wipeFrame(std::shared_ptr<MediaFrame> pFrame)
     if(pFrame->pSamples)
     {
         AVFrame* pAudio = *pFrame->pSamples;
-        av_samples_set_silence(pAudio->data, 0, pAudio->nb_samples, pAudio->channels, (enum AVSampleFormat)pAudio->format);
+        av_samples_set_silence(pAudio->data, 0, pAudio->nb_samples, pAudio->ch_layout.nb_channels, (enum AVSampleFormat)pAudio->format);
     }
 }
 

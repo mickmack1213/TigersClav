@@ -201,10 +201,10 @@ MediaSource::MediaSource(std::string filename, bool useHwDecoder, std::string hw
 
     duration_s = (float)pAudioStream_->duration * pAudioStream_->time_base.num / pAudioStream_->time_base.den;
 
-    LOG(INFO) << "Context. Sample rate: " << pAudioCodecContext_->sample_rate << ", channels: " << pAudioCodecContext_->channels << ", bytes per sample: "
+    LOG(INFO) << "Context. Sample rate: " << pAudioCodecContext_->sample_rate << ", channels: " << pAudioCodecContext_->ch_layout.nb_channels << ", bytes per sample: "
                     << av_get_bytes_per_sample(pAudioCodecContext_->sample_fmt) << ", planar: " << av_sample_fmt_is_planar(pAudioCodecContext_->sample_fmt);
 
-    LOG(INFO) << "Codec pars. Channels: " << pAudioCodecPars->channels << ", layout: 0x" << std::hex << pAudioCodecPars->channel_layout << std::dec << ", sample rate: " << pAudioCodecPars->sample_rate;
+    LOG(INFO) << "Codec pars. Channels: " << pAudioCodecPars->ch_layout.nb_channels << ", layout: 0x" << std::hex << pAudioCodecPars->ch_layout.u.mask << std::dec << ", sample rate: " << pAudioCodecPars->sample_rate;
     LOG(INFO) << "Audio codec: " << pAudioCodec_->name << ", bitrate: " << pAudioCodecPars->bit_rate << ", bits per raw sample: " << pAudioCodecPars->bits_per_raw_sample;
     LOG(INFO) << "Duration: " << std::setprecision(6) << duration_s << ", startTime: " << pAudioStream_->start_time << "pts";
     LOG(INFO) << "Time base: " << pAudioStream_->time_base.num << "/" << pAudioStream_->time_base.den;
@@ -315,9 +315,12 @@ std::shared_ptr<MediaFrame> MediaSource::get()
         pFrame->sample_rate = pFirstSrcFrame->sample_rate;
         pFrame->pts = audioPtsMin;
 
-        pFrame->channel_layout = pFirstSrcFrame->channel_layout;
-        if(pFrame->channel_layout == 0)
-            pFrame->channel_layout = av_get_default_channel_layout(pFirstSrcFrame->channels);
+        pFrame->ch_layout = pFirstSrcFrame->ch_layout;
+        if(pFrame->ch_layout.u.mask == 0)
+		{
+			LOG(ERROR) << "Schade Schokolade";
+			return nullptr;
+		}
 
         result = av_frame_get_buffer(pFrame, 0);
         if(result < 0)
@@ -337,7 +340,7 @@ std::shared_ptr<MediaFrame> MediaSource::get()
             if(copySize > samplesLeft)
                 copySize = samplesLeft;
 
-            av_samples_copy(pFrame->data, (*iter->second)->data, dstOffset, srcOffset, copySize, (*iter->second)->channels, (enum AVSampleFormat)pFrame->format);
+            av_samples_copy(pFrame->data, (*iter->second)->data, dstOffset, srcOffset, copySize, (*iter->second)->ch_layout.nb_channels, (enum AVSampleFormat)pFrame->format);
 
             samplesLeft -= copySize;
             dstOffset += copySize;
@@ -639,7 +642,7 @@ std::shared_ptr<AVFrameWrapper> MediaSource::processVideoFrame(AVPacket* pPacket
 
         float pts_s = (float)pFrame->pts * pVideoStream_->time_base.num / pVideoStream_->time_base.den;
 
-        LOG_IF(debug_, INFO) << "Video Frame: " << pVideoCodecContext_->frame_number << ", type: " << av_get_picture_type_char(pFrame->pict_type)
+        LOG_IF(debug_, INFO) << "Video Frame: " << pVideoCodecContext_->frame_num << ", type: " << av_get_picture_type_char(pFrame->pict_type)
                              << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format;
 
         if(!pPacket)
@@ -686,7 +689,7 @@ std::shared_ptr<AVFrameWrapper> MediaSource::processAudioFrame(AVPacket* pPacket
     {
         float pts_s = (float)pFrame->pts * pAudioStream_->time_base.num / pAudioStream_->time_base.den;
 
-        LOG_IF(debug_, INFO) << "Audio Frame: " << pAudioCodecContext_->frame_number// << ", type: " << av_get_picture_type_char(pFrame->pict_type)
+        LOG_IF(debug_, INFO) << "Audio Frame: " << pAudioCodecContext_->frame_num// << ", type: " << av_get_picture_type_char(pFrame->pict_type)
                              << ", PTS: " << pFrame->pts << "(" << std::setprecision(6) << pts_s << "), format: " << pFrame->format
                              << ", linesize0: " << pFrame->linesize[0] << ", linesize1: " << pFrame->linesize[1]
                              << ", data0: " << std::hex << (int64_t)pFrame->data[0] << ", data1: " << (int64_t)pFrame->data[1] << ", data2: " << (int64_t)pFrame->data[2] << std::dec

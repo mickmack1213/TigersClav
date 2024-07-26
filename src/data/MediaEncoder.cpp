@@ -128,9 +128,10 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
 
         if(pAudio->format != AV_SAMPLE_FMT_FLTP)
         {
-            pResampler_ = swr_alloc_set_opts(NULL, pAudio->channel_layout, AV_SAMPLE_FMT_FLTP, pAudio->sample_rate,
-                               pAudio->channel_layout, (enum AVSampleFormat)pAudio->format, pAudio->sample_rate, 0, NULL);
-            if(!pResampler_)
+			pResampler_ = swr_alloc();
+            int result = swr_alloc_set_opts2(&pResampler_, &pAudio->ch_layout, AV_SAMPLE_FMT_FLTP, pAudio->sample_rate,
+											 &pAudio->ch_layout, (enum AVSampleFormat)pAudio->format, pAudio->sample_rate, 0, NULL);
+            if(!pResampler_ || result != 0)
             {
                 LOG(ERROR) << "Failed to create audio resampler.";
                 return false;
@@ -165,8 +166,7 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
             return false;
         }
 
-        pAudioCodecContext_->channels = (*pFrame->pSamples)->channels;
-        pAudioCodecContext_->channel_layout = (*pFrame->pSamples)->channel_layout;
+        pAudioCodecContext_->ch_layout = (*pFrame->pSamples)->ch_layout;
         pAudioCodecContext_->sample_rate = (*pFrame->pSamples)->sample_rate;
         pAudioCodecContext_->sample_fmt = AV_SAMPLE_FMT_FLTP;
         pAudioCodecContext_->bit_rate = pFrame->audioBitRate;
@@ -184,7 +184,7 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
 
         avcodec_parameters_from_context(pAudioStream_->codecpar, pAudioCodecContext_);
 
-        LOG(INFO) << "Encoder audio: " << pAudioCodec_->name << ", channels: " << pAudioCodecContext_->channels << ", sample rate: " << pAudioCodecContext_->sample_rate
+        LOG(INFO) << "Encoder audio: " << pAudioCodec_->name << ", channels: " << pAudioCodecContext_->ch_layout.nb_channels << ", sample rate: " << pAudioCodecContext_->sample_rate
                   << ", bit rate: " << pAudioCodecContext_->bit_rate << ", frame_size: " << pAudioCodecContext_->frame_size;
     }
 
@@ -382,8 +382,7 @@ int MediaEncoder::sendAudioFrameFromBuffer(bool flush)
     pAudioBuf->nb_samples = encSamples;
     pAudioBuf->format = pAudio->format;
     pAudioBuf->sample_rate = pAudio->sample_rate;
-    pAudioBuf->channel_layout = pAudio->channel_layout;
-    pAudioBuf->channels = pAudio->channels;
+    pAudioBuf->ch_layout = pAudio->ch_layout;
     pAudioBuf->pts = curAudioPts_;
     curAudioPts_ += audioPtsInc * encSamples;
 
@@ -399,7 +398,7 @@ int MediaEncoder::sendAudioFrameFromBuffer(bool flush)
         if(copySize > samplesLeft)
             copySize = samplesLeft;
 
-        av_samples_copy(pAudioBuf->data, (*iter->pSamples)->data, dstOffset, iter->firstSample, copySize, pAudioBuf->channels, (enum AVSampleFormat)pAudioBuf->format);
+        av_samples_copy(pAudioBuf->data, (*iter->pSamples)->data, dstOffset, iter->firstSample, copySize, pAudioBuf->ch_layout.nb_channels, (enum AVSampleFormat)pAudioBuf->format);
 
         samplesLeft -= copySize;
         dstOffset += copySize;
@@ -420,11 +419,10 @@ int MediaEncoder::sendAudioFrameFromBuffer(bool flush)
     pAudioEnc->nb_samples = pAudioBuf->nb_samples;
     pAudioEnc->format = AV_SAMPLE_FMT_FLTP;
     pAudioEnc->sample_rate = pAudioBuf->sample_rate;
-    pAudioEnc->channel_layout = pAudioBuf->channel_layout;
-    pAudioEnc->channels = pAudioBuf->channels;
+    pAudioEnc->ch_layout = pAudioBuf->ch_layout;
     pAudioEnc->pts = pAudioBuf->pts;
 
-    LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudioEnc->pts << ", channel_layout: " << pAudioEnc->channel_layout;
+    LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudioEnc->pts << ", channel_layout: " << pAudioEnc->ch_layout.u.mask;
 
     av_frame_get_buffer(pAudioEnc, 0);
 
