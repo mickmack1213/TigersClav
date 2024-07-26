@@ -1,0 +1,18 @@
+name: Build
+
+on: push
+
+jobs:
+  build:
+
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+          fetch-depth: 0
+      - name: Set up Dependencies
+        run: sudo apt update && sudo apt --yes install build-essential ffmpeg libglfw3-dev libprotobuf-dev cmake libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libpostproc-dev libswresample-dev libswscale-dev
+      - name: Build
+        run: mkdir cmake-build && cd cmake-build && cmake .. && make
