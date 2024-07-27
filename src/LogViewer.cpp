@@ -13,6 +13,7 @@ void LogViewer::handle(const el::LogDispatchData* data) noexcept
     entry.text = data->logMessage()->logger()->logBuilder()->build(data->logMessage(),
                     data->dispatchAction() == el::base::DispatchAction::NormalLog);
 
+    std::unique_lock<std::mutex> lock(entriesMutex_);
     entries_.emplace_back(std::move(entry));
 }
 
@@ -26,9 +27,12 @@ void LogViewer::render()
 
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
 
-    for(const auto& entry : entries_)
     {
-        ImGui::Text("%s", entry.text.c_str());
+        std::unique_lock<std::mutex> lock(entriesMutex_);
+        for(const auto& entry : entries_)
+        {
+            ImGui::Text("%s", entry.text.c_str());
+        }
     }
 
     if(autoScroll_)

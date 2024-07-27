@@ -145,6 +145,8 @@ void Director::orchestrate(const std::vector<RefereeStateChange>& stateChanges, 
         }
     }
 
+    cutTemp.tEnd_ns_ += 60'000'000'000LL;
+
     finalCut_.push_back(cutTemp);
 
     int64_t totalDuration_ns = 0;

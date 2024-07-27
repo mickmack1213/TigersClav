@@ -4,6 +4,7 @@
 #include "imgui.h"
 #include <vector>
 #include <string>
+#include <mutex>
 
 class LogViewer : public el::LogDispatchCallback
 {
@@ -23,6 +24,7 @@ private:
     };
 
     std::vector<LogEntry> entries_;
+    std::mutex entriesMutex_;
 
     bool autoScroll_;
     bool showDemoWindow_;

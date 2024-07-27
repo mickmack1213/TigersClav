@@ -108,12 +108,16 @@ MediaSource::MediaSource(std::string filename, bool useHwDecoder, std::string hw
             if(!pConfig)
                 break;
 
-            if(pConfig->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)
-            {
-                LOG(INFO) << "[" << index << "] Supported HW: " << av_hwdevice_get_type_name(pConfig->device_type) << ", pixfmt: " << pConfig->pix_fmt;
-            }
+            const bool cfgHwDeviceCtx = pConfig->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX;
+            const bool cfgAdHoc = pConfig->methods & AV_CODEC_HW_CONFIG_METHOD_AD_HOC;
 
-            pVideoHWConfig = pConfig; // we will just use the last config if none was specified
+            if(cfgHwDeviceCtx && !cfgAdHoc)
+            {
+                LOG(INFO) << "[" << index << "] Supported HW: " << av_hwdevice_get_type_name(pConfig->device_type) << ", pixfmt: " << pConfig->pix_fmt << ", methods: " << pConfig->methods;
+
+                // Simply use the last codec in the list which does not require extra setup (ad-hoc)
+                pVideoHWConfig = pConfig;
+            }
 
             if(type != AV_HWDEVICE_TYPE_NONE && pConfig->device_type == type)
                 break;
@@ -204,7 +208,9 @@ MediaSource::MediaSource(std::string filename, bool useHwDecoder, std::string hw
     LOG(INFO) << "Context. Sample rate: " << pAudioCodecContext_->sample_rate << ", channels: " << pAudioCodecContext_->ch_layout.nb_channels << ", bytes per sample: "
                     << av_get_bytes_per_sample(pAudioCodecContext_->sample_fmt) << ", planar: " << av_sample_fmt_is_planar(pAudioCodecContext_->sample_fmt);
 
-    LOG(INFO) << "Codec pars. Channels: " << pAudioCodecPars->ch_layout.nb_channels << ", layout: 0x" << std::hex << pAudioCodecPars->ch_layout.u.mask << std::dec << ", sample rate: " << pAudioCodecPars->sample_rate;
+    char layoutString[128];
+    av_channel_layout_describe(&pAudioCodecPars->ch_layout, layoutString, sizeof(layoutString));
+    LOG(INFO) << "Codec pars. Channels: " << pAudioCodecPars->ch_layout.nb_channels << ", layout: " << layoutString << ", sample rate: " << pAudioCodecPars->sample_rate;
     LOG(INFO) << "Audio codec: " << pAudioCodec_->name << ", bitrate: " << pAudioCodecPars->bit_rate << ", bits per raw sample: " << pAudioCodecPars->bits_per_raw_sample;
     LOG(INFO) << "Duration: " << std::setprecision(6) << duration_s << ", startTime: " << pAudioStream_->start_time << "pts";
     LOG(INFO) << "Time base: " << pAudioStream_->time_base.num << "/" << pAudioStream_->time_base.den;
@@ -316,11 +322,8 @@ std::shared_ptr<MediaFrame> MediaSource::get()
         pFrame->pts = audioPtsMin;
 
         pFrame->ch_layout = pFirstSrcFrame->ch_layout;
-        if(pFrame->ch_layout.u.mask == 0)
-		{
-			LOG(ERROR) << "Schade Schokolade";
-			return nullptr;
-		}
+        if(pFrame->ch_layout.order == AV_CHANNEL_ORDER_UNSPEC)
+            av_channel_layout_default(&pFrame->ch_layout, pFrame->ch_layout.nb_channels);
 
         result = av_frame_get_buffer(pFrame, 0);
         if(result < 0)

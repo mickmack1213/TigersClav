@@ -19,5 +19,18 @@ int main(int, char** argv)
 
     TigersClav clav;
 
-    return clav.run();
+    try
+    {
+        return clav.run();
+    }
+    catch(std::exception& ex)
+    {
+        LOG(ERROR) << "Exception: " << ex.what();
+    }
+    catch(...)
+    {
+        LOG(ERROR) << "Unknown exception.";
+    }
+
+    return -1;
 }

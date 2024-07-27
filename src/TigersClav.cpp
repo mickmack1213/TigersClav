@@ -571,7 +571,11 @@ void TigersClav::drawSyncPanel()
             ImGui::SameLine(0.0f, 0.0f);
         }
         ImVec2 logBtnScreenPos = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("##log", ImVec2(pGameLog->getTotalDuration_ns() * scaleX, heightGameLog));
+        float logBtnWidth = pGameLog->getTotalDuration_ns() * scaleX;
+        if(logBtnWidth < 1)
+            logBtnWidth = 1;
+
+        ImGui::InvisibleButton("##log", ImVec2(logBtnWidth, heightGameLog));
 
         ImVec2 logBtnSize = ImGui::GetItemRectSize();
 

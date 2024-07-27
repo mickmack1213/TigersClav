@@ -26,6 +26,8 @@ public:
     AVPacket* operator->() { return pPacket; }
     AVPacket& operator*() { return *pPacket; }
 
+    operator bool() { return pPacket != 0; }
+
 private:
     AVPacket* pPacket;
 };

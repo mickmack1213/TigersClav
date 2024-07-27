@@ -128,10 +128,9 @@ bool MediaEncoder::initialize(std::shared_ptr<const MediaFrame> pFrame)
 
         if(pAudio->format != AV_SAMPLE_FMT_FLTP)
         {
-			pResampler_ = swr_alloc();
-            int result = swr_alloc_set_opts2(&pResampler_, &pAudio->ch_layout, AV_SAMPLE_FMT_FLTP, pAudio->sample_rate,
-											 &pAudio->ch_layout, (enum AVSampleFormat)pAudio->format, pAudio->sample_rate, 0, NULL);
-            if(!pResampler_ || result != 0)
+            swr_alloc_set_opts2(&pResampler_, &pAudio->ch_layout, AV_SAMPLE_FMT_FLTP, pAudio->sample_rate, &pAudio->ch_layout,
+                (enum AVSampleFormat)pAudio->format, pAudio->sample_rate, 0, NULL);
+            if(!pResampler_)
             {
                 LOG(ERROR) << "Failed to create audio resampler.";
                 return false;
@@ -273,13 +272,36 @@ int MediaEncoder::sendVideoFrame(const AVFrame* pVideo)
     auto tStart = std::chrono::high_resolution_clock::now();
 
     AVFrame* pEnc = av_frame_alloc();
+    if(!pEnc)
+    {
+        LOG(ERROR) << "Failed to allocate frame.";
+        return -1;
+    }
+
     pEnc->width = pVideo->width;
     pEnc->height = pVideo->height;
     pEnc->format = pVideo->format;
 
-    av_frame_get_buffer(pEnc, 0);
-    av_frame_copy(pEnc, pVideo);
-    av_frame_copy_props(pEnc, pVideo);
+    result = av_frame_get_buffer(pEnc, 0);
+    if(result < 0)
+    {
+        LOG(ERROR) << "av_frame_get_buffer (video) error: " << err2str(result);
+        return -1;
+    }
+
+    result = av_frame_copy(pEnc, pVideo);
+    if(result < 0)
+    {
+        LOG(ERROR) << "av_frame_copy (video) error: " << err2str(result);
+        return -1;
+    }
+
+    result = av_frame_copy_props(pEnc, pVideo);
+    if(result < 0)
+    {
+        LOG(ERROR) << "av_frame_copy_props (video) error: " << err2str(result);
+        return -1;
+    }
 
     auto tCopy = std::chrono::high_resolution_clock::now();
     videoTiming_.copy = std::chrono::duration_cast<std::chrono::microseconds>(tCopy - tStart).count() * 1e-6f;
@@ -313,6 +335,12 @@ int MediaEncoder::receiveVideoPackets()
     {
         AVPacketWrapper packet;
         auto tStart = std::chrono::high_resolution_clock::now();
+
+        if(!packet)
+        {
+            LOG(ERROR) << "No memory for AVPacketWrapper.";
+            return -1;
+        }
 
         result = avcodec_receive_packet(pVideoCodecContext_, packet);
         if(result == AVERROR(EAGAIN) || result == AVERROR_EOF)
@@ -365,7 +393,7 @@ int MediaEncoder::sendAudioFrameFromBuffer(bool flush)
         bufferedSamples += (*buf.pSamples)->nb_samples - buf.firstSample;
     }
 
-    if(bufferedSamples < pAudioCodecContext_->frame_size && !flush)
+    if(bufferedSamples < pAudioCodecContext_->frame_size && (!flush || bufferedSamples == 0))
     {
         // not enough audio samples for a full frame
         return 0;
@@ -422,7 +450,12 @@ int MediaEncoder::sendAudioFrameFromBuffer(bool flush)
     pAudioEnc->ch_layout = pAudioBuf->ch_layout;
     pAudioEnc->pts = pAudioBuf->pts;
 
-    LOG_IF(debug_, INFO) << "Encoding audio frame. PTS: " << pAudioEnc->pts << ", channel_layout: " << pAudioEnc->ch_layout.u.mask;
+    if(debug_)
+    {
+        char layoutString[128];
+        av_channel_layout_describe(&pAudioEnc->ch_layout, layoutString, sizeof(layoutString));
+        LOG(INFO) << "Encoding audio frame. PTS: " << pAudioEnc->pts << ", channel_layout: " << layoutString;
+    }
 
     av_frame_get_buffer(pAudioEnc, 0);
 
@@ -447,7 +480,7 @@ int MediaEncoder::sendAudioFrameFromBuffer(bool flush)
     if(result < 0)
     {
         LOG(ERROR) << "avcodec_send_frame (audio) error: " << err2str(result);
-        return -1;
+        // Just keep going, this mostly works and gets around encoder hiccups
     }
 
     av_frame_free(&pAudioBuf);
