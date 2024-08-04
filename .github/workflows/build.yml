@@ -15,4 +15,4 @@ jobs:
       - name: Set up Dependencies
         run: sudo apt update && sudo apt --yes install build-essential ffmpeg libglfw3-dev libprotobuf-dev cmake libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libpostproc-dev libswresample-dev libswscale-dev protobuf-compiler
       - name: Build
-        run: mkdir build && cd build && cmake .. && make
+        run: mkdir build && cd build && cmake .. && make -j
