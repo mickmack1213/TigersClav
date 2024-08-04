@@ -18,8 +18,28 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(BLEND2D_STATIC TRUE)
 include("blend2d/CMakeLists.txt")
 
+set(PROTO_RAW_FILES
+    proto/ssl_gc_referee_message.proto
+    proto/ssl_gc_game_event.proto
+    proto/ssl_gc_common.proto
+    proto/ssl_gc_geometry.proto
+    proto/ssl_vision_wrapper.proto
+    proto/ssl_vision_wrapper_tracked.proto
+    proto/ssl_vision_detection.proto
+    proto/ssl_vision_geometry.proto
+    proto/ssl_vision_detection_tracked.proto
+)
+
 find_package(FFmpeg REQUIRED COMPONENTS AVCODEC AVFORMAT AVUTIL SWSCALE SWRESAMPLE)
-find_package(Protobuf CONFIG REQUIRED)
+find_package(Protobuf CONFIG)
+if(NOT Protobuf_FOUND)
+    set(PROTO_ALTERNATIVE_VERSION TRUE)
+    find_package(Protobuf REQUIRED)
+    protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_RAW_FILES})
+else()
+    set(PROTO_ALTERNATIVE_VERSION FALSE)
+    set(PROTO_SRCS ${PROTO_RAW_FILES})
+endif()
 find_package(ZLIB REQUIRED)
 
 include_directories(
@@ -77,18 +97,12 @@ add_executable(${PROJECT_NAME}
     imgui/backends/imgui_impl_opengl3.cpp
     imgui/backends/imgui_impl_glfw.cpp
 
-    proto/ssl_gc_referee_message.proto
-    proto/ssl_gc_game_event.proto
-    proto/ssl_gc_common.proto
-    proto/ssl_gc_geometry.proto
-    proto/ssl_vision_wrapper.proto
-    proto/ssl_vision_wrapper_tracked.proto
-    proto/ssl_vision_detection.proto
-    proto/ssl_vision_geometry.proto
-    proto/ssl_vision_detection_tracked.proto
+    ${PROTO_SRCS}
 )
 
-protobuf_generate(TARGET ${PROJECT_NAME} IMPORT_DIRS proto)
+if(NOT PROTO_ALTERNATIVE_VERSION)
+    protobuf_generate(TARGET ${PROJECT_NAME} IMPORT_DIRS proto)
+endif()
 
 add_definitions(
     -DCUSTOM_IMGUIFILEDIALOG_CONFIG="../src/util/CustomImGuiFileDialogConfig.h"
